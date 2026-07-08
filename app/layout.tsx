@@ -1,6 +1,10 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { AppSidebar } from "@/components/app-sidebar"
 import "./globals.css";
+import { Geist } from "next/font/google";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export default function RootLayout({
   children,
@@ -9,9 +13,18 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="pt-br"
+      lang="pt-br" className={cn("font-sans", geist.variable)}
     >
-      <body className="min-h-full min-w-full" suppressHydrationWarning>{children}</body>
+      <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+      <body className="min-h-full min-w-full" suppressHydrationWarning>
+        <SidebarProvider>
+          <AppSidebar />
+            <main className="w-full">
+              <SidebarTrigger />
+              {children}
+            </main>
+        </SidebarProvider>
+      </body>
     </html>
   );
 }

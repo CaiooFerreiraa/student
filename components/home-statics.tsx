@@ -15,7 +15,7 @@ export default function HomeStatics() {
       <div>
         <span>Desempenho por disciplina</span>
         <span>Materiais enviados</span>
-        <span>Pergunte a IA</span>
+        <span>Pergunte para a IA</span>
       </div>
     </div>
   )

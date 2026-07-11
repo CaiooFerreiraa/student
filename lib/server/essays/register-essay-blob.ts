@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { Prisma } from "@/generated/prisma/client";
 import { FilePurpose, FileStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/server/prisma";
 
@@ -20,24 +21,42 @@ export async function registerEssayBlob(userId: string, raw: z.infer<typeof sche
   if (!submission) throw new Error("Submissão não encontrada.");
   if (!input.pathname.startsWith(`users/${userId}/essays/${submission.id}/`)) throw new Error("Pathname inválido.");
 
-  const existing = await prisma.fileAsset.findUnique({ where: { pathname: input.pathname } });
-  if (existing) return existing;
-
-  return prisma.$transaction(async (tx) => {
-    const file = await tx.fileAsset.create({
-      data: {
-        ownerId: userId,
-        purpose: FilePurpose.ESSAY_SUBMISSION,
-        status: FileStatus.AVAILABLE,
-        pathname: input.pathname,
-        url: input.url,
-        downloadUrl: input.downloadUrl,
-        originalName: input.originalName,
-        contentType: input.contentType,
-        byteSize: BigInt(input.size),
-      },
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const file = await tx.fileAsset.create({
+        data: {
+          ownerId: userId,
+          purpose: FilePurpose.ESSAY_SUBMISSION,
+          status: FileStatus.AVAILABLE,
+          pathname: input.pathname,
+          url: input.url,
+          downloadUrl: input.downloadUrl,
+          originalName: input.originalName,
+          contentType: input.contentType,
+          byteSize: BigInt(input.size),
+        },
+      });
+      await tx.essaySubmissionFile.create({ data: { submissionId: submission.id, fileId: file.id, position: input.position, pageNumber: input.position + 1 } });
+      return file;
     });
-    await tx.essaySubmissionFile.create({ data: { submissionId: submission.id, fileId: file.id, position: input.position, pageNumber: input.position + 1 } });
-    return file;
-  });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+
+    const existing = await prisma.fileAsset.findUnique({
+      where: { pathname: input.pathname },
+      include: { essayFiles: { where: { submissionId: submission.id } } },
+    });
+
+    if (
+      !existing
+      || existing.ownerId !== userId
+      || existing.purpose !== FilePurpose.ESSAY_SUBMISSION
+      || existing.essayFiles.length !== 1
+      || existing.essayFiles[0]?.position !== input.position
+    ) {
+      throw error;
+    }
+
+    return existing;
+  }
 }

@@ -2,12 +2,13 @@ import { head } from "@vercel/blob";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/server/current-user";
+import { withApiErrorBoundary } from "@/lib/server/http/api-handler";
 import { getBlobEnv } from "@/lib/server/env";
 import { registerEssayBlob } from "@/lib/server/essays/register-essay-blob";
 
 const payloadSchema = z.object({ submissionId: z.string().uuid(), originalName: z.string().min(1).max(255), position: z.number().int().min(0).max(9) });
 
-export async function POST(request: Request): Promise<Response> {
+export const POST = withApiErrorBoundary(async (request: Request): Promise<Response> => {
   const user = await getCurrentUser();
   const env = getBlobEnv();
   const body = await request.json() as HandleUploadBody;
@@ -34,4 +35,4 @@ export async function POST(request: Request): Promise<Response> {
     },
   });
   return Response.json(result);
-}
+});

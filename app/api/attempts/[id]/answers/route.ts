@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { GradingStatus } from "@/generated/prisma/enums";
 import { getCurrentUser } from "@/lib/server/current-user";
+import { withApiErrorBoundary } from "@/lib/server/http/api-handler";
 import { prisma } from "@/lib/server/prisma";
 
 const schema = z.object({ questionId: z.string().uuid(), selectedOptionId: z.string().uuid().nullable().optional(), booleanAnswer: z.boolean().nullable().optional(), textAnswer: z.string().max(10_000).nullable().optional() });
 
-export async function PUT(request: Request, context: RouteContext<"/api/attempts/[id]/answers">): Promise<Response> {
+export const PUT = withApiErrorBoundary(async (request: Request, context: RouteContext<"/api/attempts/[id]/answers">): Promise<Response> => {
   const user = await getCurrentUser();
   const { id } = await context.params;
   const input = schema.parse(await request.json());
@@ -19,4 +20,4 @@ export async function PUT(request: Request, context: RouteContext<"/api/attempts
     create: { attemptId: attempt.id, questionId: question.id, selectedOptionId: input.selectedOptionId, booleanAnswer: input.booleanAnswer, textAnswer: input.textAnswer, gradingStatus: question.type === "OPEN" ? GradingStatus.PENDING : GradingStatus.NOT_REQUIRED },
   });
   return Response.json({ data: answer, error: null });
-}
+});

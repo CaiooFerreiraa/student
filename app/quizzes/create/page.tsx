@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BookOpen, Check, Clock3, FileText, GraduationCap, Sparkles, Target } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { readApiResponse } from "@/lib/api-client";
 
 type Subject = { id: string; name: string };
 type Material = { id: string; title: string; type: string; status: string; size: number; subject: string | null };
@@ -25,7 +26,7 @@ export default function CreateQuizPage() {
   const count = distribution.multipleChoice + distribution.trueFalse + distribution.open;
   const duration = useMemo(() => Math.ceil(count * 1.5), [count]);
 
-  useEffect(() => { void Promise.all([fetch("/api/subjects").then((response) => response.json()), fetch("/api/materials").then((response) => response.json())]).then(([subjectResult, materialResult]) => { setSubjects(subjectResult.data ?? []); setMaterials((materialResult.data ?? []).filter((material: Material) => material.status === "READY")); }); }, []);
+  useEffect(() => { void Promise.all([fetch("/api/subjects").then((response) => readApiResponse<Subject[]>(response)), fetch("/api/materials").then((response) => readApiResponse<Material[]>(response))]).then(([subjectResult, materialResult]) => { setSubjects(subjectResult.data ?? []); setMaterials((materialResult.data ?? []).filter((material) => material.status === "READY")); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Falha ao carregar dados do quiz.")); }, []);
 
   function setCount(key: keyof Distribution, value: number): void { setDistribution((current) => ({ ...current, [key]: Math.max(0, Math.min(50, value)) })); }
   function toggleMaterial(id: string): void { setSelectedMaterials((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length < 10 ? [...current, id] : current); }
@@ -38,11 +39,10 @@ export default function CreateQuizPage() {
     setSubmitting(true);
     try {
       const createResponse = await fetch("/api/quizzes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, description: description || undefined, subjectId: subjectId || undefined, educationLevel, difficulty, mode: "STUDY", generationMode: "AI", answerRevealMode: "AFTER_SUBMIT", questionDistribution: distribution, timePerQuestionSeconds: 90, materialIds: selectedMaterials }) });
-      const createResult = await createResponse.json() as { data?: { id: string }; error?: string };
-      if (!createResponse.ok || !createResult.data) throw new Error(createResult.error ?? "Não foi possível criar o quiz.");
+      const createResult = await readApiResponse<{ id: string }>(createResponse);
+      if (!createResult.data) throw new Error("Não foi possível criar o quiz.");
       const generateResponse = await fetch(`/api/quizzes/${createResult.data.id}/generate`, { method: "POST" });
-      const generateResult = await generateResponse.json() as { error?: string };
-      if (!generateResponse.ok) throw new Error(generateResult.error ?? "Quiz salvo, mas a geração não pôde ser iniciada.");
+      await readApiResponse(generateResponse);
       router.push("/quizzes"); router.refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao criar quiz."); } finally { setSubmitting(false); }
   }

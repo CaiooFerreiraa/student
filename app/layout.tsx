@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppTopbar } from "@/components/app-topbar";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 import { getCurrentUser } from "@/lib/server/current-user";
 import { prisma } from "@/lib/server/prisma";
 import "./globals.css";
@@ -22,7 +23,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   if (!days.has(cursor.toISOString().slice(0, 10))) cursor.setUTCDate(cursor.getUTCDate() - 1);
   while (days.has(cursor.toISOString().slice(0, 10))) { streak++; cursor.setUTCDate(cursor.getUTCDate() - 1); }
   return (
-    <html lang="pt-BR" className={geist.variable}>
+    <html lang="pt-BR" className={geist.variable} data-scroll-behavior="smooth">
       <body suppressHydrationWarning>
         <SidebarProvider>
           <AppSidebar displayName={user.displayName} />
@@ -33,6 +34,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             </main>
           </div>
         </SidebarProvider>
+        <Toaster position="top-right" richColors closeButton />
       </body>
     </html>
   );

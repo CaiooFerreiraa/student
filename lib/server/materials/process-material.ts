@@ -1,16 +1,14 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { get } from "@vercel/blob";
-import { DocxLoader } from "@langchain/community/document_loaders/fs/docx";
-import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { ProcessingStatus } from "@/generated/prisma/enums";
 import { getAiEnv, getBlobEnv, hasAiConfiguration } from "@/lib/server/env";
+import { loadDocumentsFromFile, type LoadedDocument } from "@/lib/server/materials/document-loader";
+import { replaceMaterialChunks } from "@/lib/server/materials/material-chunk-repository";
 import { setMaterialChunkEmbeddings } from "@/lib/server/materials/material-chunk-vector-store";
 import { prisma } from "@/lib/server/prisma";
-
-type LoadedDocument = { pageContent: string; metadata: Record<string, unknown> };
 
 async function loadDocuments(pathname: string, contentType: string): Promise<LoadedDocument[]> {
   const blobEnv = getBlobEnv();
@@ -19,10 +17,7 @@ async function loadDocuments(pathname: string, contentType: string): Promise<Loa
   const bytes = await new Response(result.stream).arrayBuffer();
   const file = new Blob([bytes], { type: contentType });
 
-  if (contentType === "application/pdf") return new PDFLoader(file, { splitPages: true }).load();
-  if (contentType.includes("wordprocessingml")) return new DocxLoader(file, { type: "docx" }).load();
-  if (contentType.startsWith("text/")) return [{ pageContent: await file.text(), metadata: {} }];
-  throw new Error("Este tipo de material não oferece extração textual automática.");
+  return loadDocumentsFromFile(file, contentType);
 }
 
 function pageNumber(metadata: Record<string, unknown>): number | null {
@@ -60,23 +55,18 @@ export async function processMaterialJob(materialId: string): Promise<void> {
       }))
       .filter((chunk) => chunk.content.length > 0);
 
-    await prisma.$transaction(async (tx) => {
-      await tx.materialChunk.deleteMany({ where: { materialId } });
-      for (const chunk of cleanChunks) {
-        await tx.materialChunk.create({
-          data: {
-            materialId,
-            position: chunk.position,
-            pageStart: chunk.page,
-            pageEnd: chunk.page,
-            content: chunk.content,
-            contentHash: chunk.hash,
-            tokenCount: Math.ceil(chunk.content.length / 4),
-            metadata: chunk.metadata,
-          },
-        });
-      }
-    });
+    await replaceMaterialChunks(
+      materialId,
+      cleanChunks.map((chunk) => ({
+        position: chunk.position,
+        pageStart: chunk.page,
+        pageEnd: chunk.page,
+        content: chunk.content,
+        contentHash: chunk.hash,
+        tokenCount: Math.ceil(chunk.content.length / 4),
+        metadata: chunk.metadata,
+      })),
+    );
 
     if (hasAiConfiguration() && cleanChunks.length > 0) {
       const aiEnv = getAiEnv();

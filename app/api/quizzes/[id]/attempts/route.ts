@@ -1,7 +1,8 @@
 import { getCurrentUser } from "@/lib/server/current-user";
+import { withApiErrorBoundary } from "@/lib/server/http/api-handler";
 import { prisma } from "@/lib/server/prisma";
 
-export async function POST(_request: Request, context: RouteContext<"/api/quizzes/[id]/attempts">): Promise<Response> {
+export const POST = withApiErrorBoundary(async (_request: Request, context: RouteContext<"/api/quizzes/[id]/attempts">): Promise<Response> => {
   const user = await getCurrentUser();
   const { id } = await context.params;
   const quiz = await prisma.quiz.findFirst({ where: { id, ownerId: user.id, deletedAt: null }, include: { currentVersion: true } });
@@ -10,4 +11,4 @@ export async function POST(_request: Request, context: RouteContext<"/api/quizze
   if (existing) return Response.json({ data: existing, error: null });
   const attempt = await prisma.quizAttempt.create({ data: { userId: user.id, quizId: quiz.id, quizVersionId: quiz.currentVersion.id } });
   return Response.json({ data: attempt, error: null }, { status: 201 });
-}
+});

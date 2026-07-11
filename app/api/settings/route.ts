@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { EducationLevel, ThemePreference } from "@/generated/prisma/enums";
 import { getCurrentUser } from "@/lib/server/current-user";
+import { withApiErrorBoundary } from "@/lib/server/http/api-handler";
 import { prisma } from "@/lib/server/prisma";
 
 const schema = z.object({
@@ -17,13 +18,13 @@ const schema = z.object({
   adaptToEducationLevel: z.boolean(),
 });
 
-export async function GET(): Promise<Response> {
+export const GET = withApiErrorBoundary(async (): Promise<Response> => {
   const user = await getCurrentUser();
   const full = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, include: { profile: true, preferences: true } });
   return Response.json({ data: { displayName: full.displayName, bio: full.profile?.bio ?? "", educationLevel: full.profile?.educationLevel ?? EducationLevel.UNDERGRADUATE, primaryGoal: full.profile?.primaryGoal ?? "", weeklyStudyGoalMinutes: full.profile?.weeklyStudyGoalMinutes ?? 480, theme: full.preferences?.theme ?? ThemePreference.LIGHT, reviewNotifications: full.preferences?.reviewNotifications ?? true, weeklySummary: full.preferences?.weeklySummary ?? true, processingNotifications: full.preferences?.processingNotifications ?? true, alwaysShowSources: full.preferences?.alwaysShowSources ?? true, adaptToEducationLevel: full.preferences?.adaptToEducationLevel ?? true }, error: null });
-}
+});
 
-export async function PATCH(request: Request): Promise<Response> {
+export const PATCH = withApiErrorBoundary(async (request: Request): Promise<Response> => {
   const user = await getCurrentUser();
   const input = schema.parse(await request.json());
   await prisma.$transaction([
@@ -32,4 +33,4 @@ export async function PATCH(request: Request): Promise<Response> {
     prisma.userPreference.upsert({ where: { userId: user.id }, update: { theme: input.theme, reviewNotifications: input.reviewNotifications, weeklySummary: input.weeklySummary, processingNotifications: input.processingNotifications, alwaysShowSources: input.alwaysShowSources, adaptToEducationLevel: input.adaptToEducationLevel }, create: { userId: user.id, theme: input.theme, reviewNotifications: input.reviewNotifications, weeklySummary: input.weeklySummary, processingNotifications: input.processingNotifications, alwaysShowSources: input.alwaysShowSources, adaptToEducationLevel: input.adaptToEducationLevel } }),
   ]);
   return Response.json({ data: input, error: null });
-}
+});

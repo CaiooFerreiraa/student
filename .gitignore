@@ -33,6 +33,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 bun.lock
 
 # vercel
@@ -41,3 +42,6 @@ bun.lock
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+/generated/prisma/
+
+.vercel

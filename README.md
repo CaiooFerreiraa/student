@@ -1,4 +1,18 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lumina Study
+
+Plataforma de estudos que transforma documentos em quizzes, oferece recuperação contextual com a tutora Lumina e corrige redações enviadas como texto, DOCX ou imagem.
+
+## Desenvolvimento
+
+```bash
+bun install
+bun run db:generate
+bun run db:deploy
+bun run db:seed
+bun run dev
+```
+
+Consulte `.env.example` para as integrações e [docs/architecture/runtime.md](docs/architecture/runtime.md) para o fluxo técnico.
 
 ## Getting Started
 

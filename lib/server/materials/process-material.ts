@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { get } from "@vercel/blob";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { OpenAIEmbeddings } from "@langchain/openai";
-import { and, asc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { ProcessingStatus } from "@/domain/enums";
 import { db } from "@/lib/server/db";
 import { backgroundJobs, fileAssets, materialChunks, materials } from "@/lib/server/db/schema";
@@ -11,6 +11,7 @@ import { getAiEnv, getBlobEnv, hasAiConfiguration } from "@/lib/server/env";
 import { loadDocumentsFromFile, type LoadedDocument } from "@/lib/server/materials/document-loader";
 import { replaceMaterialChunks } from "@/lib/server/materials/material-chunk-repository";
 import { setMaterialChunkEmbeddings } from "@/lib/server/materials/material-chunk-vector-store";
+import { claimMaterialJob } from "@/lib/server/materials/material-job-repository";
 
 async function loadDocuments(pathname: string, contentType: string): Promise<LoadedDocument[]> {
   const blobEnv = getBlobEnv();
@@ -36,13 +37,11 @@ export async function processMaterialJob(materialId: string): Promise<void> {
   if (!row || row.material.deletedAt) return;
   const { file } = row;
 
-  const [job] = await db.select().from(backgroundJobs).where(and(eq(backgroundJobs.targetType, "Material"), eq(backgroundJobs.targetId, materialId), eq(backgroundJobs.kind, "PROCESS_MATERIAL"))).limit(1);
-
   const startedAt = new Date();
-  await db.transaction(async (transaction) => {
-    await transaction.update(materials).set({ processingStatus: ProcessingStatus.PROCESSING, processingError: null, updatedAt: startedAt }).where(eq(materials.id, materialId));
-    if (job) await transaction.update(backgroundJobs).set({ status: "RUNNING", attempts: job.attempts + 1, lockedAt: startedAt, updatedAt: startedAt }).where(eq(backgroundJobs.id, job.id));
-  });
+  const jobId = await claimMaterialJob(materialId, startedAt);
+  if (!jobId) return;
+
+  await db.update(materials).set({ processingStatus: ProcessingStatus.PROCESSING, processingError: null, updatedAt: startedAt }).where(eq(materials.id, materialId));
 
   try {
     const loaded = await loadDocuments(file.pathname, file.contentType);
@@ -87,14 +86,14 @@ export async function processMaterialJob(materialId: string): Promise<void> {
     const completedAt = new Date();
     await db.transaction(async (transaction) => {
       await transaction.update(materials).set({ processingStatus: ProcessingStatus.READY, pageCount: loaded.length, processedAt: completedAt, updatedAt: completedAt }).where(eq(materials.id, materialId));
-      if (job) await transaction.update(backgroundJobs).set({ status: "SUCCEEDED", lockedAt: null, lockedBy: null, updatedAt: completedAt }).where(eq(backgroundJobs.id, job.id));
+      await transaction.update(backgroundJobs).set({ status: "SUCCEEDED", lockedAt: null, lockedBy: null, updatedAt: completedAt }).where(eq(backgroundJobs.id, jobId));
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falha desconhecida no processamento.";
     const failedAt = new Date();
     await db.transaction(async (transaction) => {
       await transaction.update(materials).set({ processingStatus: ProcessingStatus.FAILED, processingError: message, updatedAt: failedAt }).where(eq(materials.id, materialId));
-      if (job) await transaction.update(backgroundJobs).set({ status: "FAILED", lastError: message, lockedAt: null, updatedAt: failedAt }).where(eq(backgroundJobs.id, job.id));
+      await transaction.update(backgroundJobs).set({ status: "FAILED", lastError: message, lockedAt: null, updatedAt: failedAt }).where(eq(backgroundJobs.id, jobId));
     });
     throw error;
   }

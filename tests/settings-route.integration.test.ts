@@ -3,6 +3,7 @@ import { and, eq, or, sql } from "drizzle-orm";
 import "@/tests/helpers/clerk";
 
 mock.module("server-only", () => ({}));
+mock.module("next/server", () => ({ after: () => undefined }));
 
 let GET: typeof import("@/app/api/settings/route").GET;
 let PATCH: typeof import("@/app/api/settings/route").PATCH;

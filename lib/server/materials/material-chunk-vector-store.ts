@@ -4,8 +4,15 @@ import { db } from "@/lib/server/db";
 import { materialChunks, materials } from "@/lib/server/db/schema";
 
 const EMBEDDING_DIMENSIONS = 1_536;
+const EMBEDDING_UPDATE_BATCH_SIZE = 100;
 export type MaterialChunkSemanticMatch = { materialId: string; materialTitle: string; content: string; pageStart: number | null; pageEnd: number | null; similarity: number };
 type ChunkEmbedding = { id: string; embedding: number[] };
+
+function batches<T>(items: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
+  return result;
+}
 
 function validateEmbedding(embedding: number[]): number[] {
   if (embedding.length !== EMBEDDING_DIMENSIONS || embedding.some((value) => !Number.isFinite(value))) {
@@ -31,9 +38,19 @@ export async function searchMaterialChunksBySimilarity(input: { ownerId: string;
 
 export async function setMaterialChunkEmbeddings(chunks: ChunkEmbedding[]): Promise<void> {
   if (chunks.length === 0) return;
+  const validated = chunks.map((chunk) => ({
+    id: chunk.id,
+    embedding: `[${validateEmbedding(chunk.embedding).join(",")}]`,
+  }));
+
   await db.transaction(async (transaction) => {
-    for (const chunk of chunks) {
-      await transaction.update(materialChunks).set({ embedding: validateEmbedding(chunk.embedding) }).where(eq(materialChunks.id, chunk.id));
+    for (const batch of batches(validated, EMBEDDING_UPDATE_BATCH_SIZE)) {
+      await transaction.execute(sql`
+        update ${materialChunks}
+        set "embedding" = batch.embedding::vector
+        from jsonb_to_recordset(${JSON.stringify(batch)}::jsonb) as batch(id uuid, embedding text)
+        where ${materialChunks.id} = batch.id
+      `);
     }
   });
 }

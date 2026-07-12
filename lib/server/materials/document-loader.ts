@@ -1,4 +1,5 @@
 import "server-only";
+import "pdf-parse/worker";
 import { DocxLoader } from "@langchain/community/document_loaders/fs/docx";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { PDFParse } from "pdf-parse";

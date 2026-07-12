@@ -1,9 +1,11 @@
+import { asc, eq, isNull, or } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/server/current-user";
+import { db } from "@/lib/server/db";
+import { subjects } from "@/lib/server/db/schema";
 import { withApiErrorBoundary } from "@/lib/server/http/api-handler";
-import { prisma } from "@/lib/server/prisma";
 
 export const GET = withApiErrorBoundary(async (): Promise<Response> => {
   const user = await getCurrentUser();
-  const subjects = await prisma.subject.findMany({ where: { OR: [{ ownerId: user.id }, { ownerId: null }] }, orderBy: { name: "asc" } });
-  return Response.json({ data: subjects, error: null });
+  const rows = await db.select().from(subjects).where(or(eq(subjects.ownerId, user.id), isNull(subjects.ownerId))).orderBy(asc(subjects.name));
+  return Response.json({ data: rows, error: null });
 });

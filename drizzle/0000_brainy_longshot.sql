@@ -1,0 +1,2 @@
+-- Baseline introspectado do banco Neon existente.
+-- As tabelas e os dados já existiam antes da adoção do Drizzle.

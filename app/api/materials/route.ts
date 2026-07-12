@@ -1,9 +1,13 @@
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/server/current-user";
+import { db } from "@/lib/server/db";
+import { fileAssets, materialChunks, materials, subjects } from "@/lib/server/db/schema";
 import { withApiErrorBoundary } from "@/lib/server/http/api-handler";
-import { prisma } from "@/lib/server/prisma";
 
 export const GET = withApiErrorBoundary(async (): Promise<Response> => {
   const user = await getCurrentUser();
-  const materials = await prisma.material.findMany({ where: { ownerId: user.id, deletedAt: null }, orderBy: { createdAt: "desc" }, include: { file: true, subject: true, _count: { select: { chunks: true } } } });
-  return Response.json({ data: materials.map((material) => ({ id: material.id, title: material.title, type: material.type, status: material.processingStatus, size: Number(material.file.byteSize), subject: material.subject?.name ?? "Sem matéria", pageCount: material.pageCount, chunkCount: material._count.chunks, error: material.processingError, createdAt: material.createdAt.toISOString() })), error: null });
+  const rows = await db.select({ material: materials, file: fileAssets, subject: subjects, chunkCount: sql<number>`(select count(*)::int from ${materialChunks} where ${materialChunks.materialId} = ${materials.id})` })
+    .from(materials).innerJoin(fileAssets, eq(materials.fileId, fileAssets.id)).leftJoin(subjects, eq(materials.subjectId, subjects.id))
+    .where(and(eq(materials.ownerId, user.id), isNull(materials.deletedAt))).orderBy(desc(materials.createdAt));
+  return Response.json({ data: rows.map(({ material, file, subject, chunkCount }) => ({ id: material.id, title: material.title, type: material.type, status: material.processingStatus, size: file.byteSize, subject: subject?.name ?? "Sem matéria", pageCount: material.pageCount, chunkCount, error: material.processingError, createdAt: material.createdAt.toISOString() })), error: null });
 });

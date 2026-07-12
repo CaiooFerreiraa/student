@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1783818628053,
+      "tag": "0000_brainy_longshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783820537909,
+      "tag": "0001_remove-prisma-metadata",
+      "breakpoints": true
+    }
+  ]
+}

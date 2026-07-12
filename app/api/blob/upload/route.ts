@@ -23,7 +23,6 @@ const clientPayloadSchema = z.object({
 const tokenPayloadSchema = clientPayloadSchema.extend({ userId: z.string().uuid() });
 
 export const POST = withApiErrorBoundary(async (request: Request): Promise<Response> => {
-  const user = await getCurrentUser();
   const blobEnv = getBlobEnv();
   const body = await request.json() as HandleUploadBody;
 
@@ -32,6 +31,7 @@ export const POST = withApiErrorBoundary(async (request: Request): Promise<Respo
     body,
     token: blobEnv.BLOB_READ_WRITE_TOKEN,
     onBeforeGenerateToken: async (pathname, clientPayload) => {
+      const user = await getCurrentUser();
       if (!pathname.startsWith(`users/${user.id}/materials/`)) throw new Error("Pathname de upload inválido.");
       const payload = clientPayloadSchema.parse(JSON.parse(clientPayload ?? "{}"));
       return {

@@ -1,9 +1,11 @@
 import "server-only";
 import { createAgent } from "langchain";
 import { ChatOpenAI } from "@langchain/openai";
-import { AiFeature, MessageRole, RunStatus } from "@/generated/prisma/enums";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { AiFeature, MessageRole, RunStatus } from "@/domain/enums";
+import { db } from "@/lib/server/db";
+import { aiRuns, conversationMessages, conversations } from "@/lib/server/db/schema";
 import { getAiEnv } from "@/lib/server/env";
-import { prisma } from "@/lib/server/prisma";
 import { LUMINA_PROMPT_VERSION, LUMINA_SYSTEM_PROMPT } from "@/lib/server/ai/lumina-prompt";
 import { createLuminaTools } from "@/lib/server/ai/lumina-tools";
 
@@ -19,21 +21,15 @@ function messageText(content: unknown): string {
 
 export async function runLumina(userId: string, conversationId: string, userMessage: string) {
   const aiEnv = getAiEnv();
-  const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, userId } });
+  const [conversation] = await db.select().from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId))).limit(1);
   if (!conversation) throw new Error("Conversa não encontrada.");
 
-  await prisma.conversationMessage.create({
-    data: { conversationId, role: MessageRole.USER, content: userMessage },
-  });
-  const history = await prisma.conversationMessage.findMany({
-    where: { conversationId, role: { in: [MessageRole.USER, MessageRole.ASSISTANT] } },
-    orderBy: { createdAt: "asc" },
-    take: 30,
-    select: { role: true, content: true },
-  });
+  await db.insert(conversationMessages).values({ conversationId, role: MessageRole.USER, content: userMessage });
+  const history = await db.select({ role: conversationMessages.role, content: conversationMessages.content }).from(conversationMessages)
+    .where(and(eq(conversationMessages.conversationId, conversationId), inArray(conversationMessages.role, [MessageRole.USER, MessageRole.ASSISTANT])))
+    .orderBy(asc(conversationMessages.createdAt)).limit(30);
 
-  const run = await prisma.aiRun.create({
-    data: {
+  const [run] = await db.insert(aiRuns).values({
       userId,
       feature: AiFeature.CHAT,
       targetType: "Conversation",
@@ -41,8 +37,8 @@ export async function runLumina(userId: string, conversationId: string, userMess
       status: RunStatus.RUNNING,
       model: aiEnv.OPENAI_CHAT_MODEL,
       promptVersion: LUMINA_PROMPT_VERSION,
-    },
-  });
+    }).returning();
+  if (!run) throw new Error("Não foi possível registrar a execução da IA.");
   const startedAt = performance.now();
 
   try {
@@ -55,17 +51,17 @@ export async function runLumina(userId: string, conversationId: string, userMess
     const text = messageText(finalMessage?.content);
     if (!text) throw new Error("A Lumina não retornou uma resposta textual.");
 
-    const stored = await prisma.conversationMessage.create({
-      data: { conversationId, role: MessageRole.ASSISTANT, content: text },
+    const [stored] = await db.insert(conversationMessages).values({ conversationId, role: MessageRole.ASSISTANT, content: text }).returning();
+    if (!stored) throw new Error("Não foi possível salvar a resposta.");
+    const completedAt = new Date();
+    await db.transaction(async (transaction) => {
+      await transaction.update(aiRuns).set({ status: RunStatus.SUCCEEDED, latencyMs: Math.round(performance.now() - startedAt), completedAt }).where(eq(aiRuns.id, run.id));
+      await transaction.update(conversations).set({ updatedAt: completedAt }).where(eq(conversations.id, conversationId));
     });
-    await prisma.$transaction([
-      prisma.aiRun.update({ where: { id: run.id }, data: { status: RunStatus.SUCCEEDED, latencyMs: Math.round(performance.now() - startedAt), completedAt: new Date() } }),
-      prisma.conversation.update({ where: { id: conversationId }, data: { updatedAt: new Date() } }),
-    ]);
     return stored;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falha desconhecida.";
-    await prisma.aiRun.update({ where: { id: run.id }, data: { status: RunStatus.FAILED, errorMessage: message, latencyMs: Math.round(performance.now() - startedAt), completedAt: new Date() } });
+    await db.update(aiRuns).set({ status: RunStatus.FAILED, errorMessage: message, latencyMs: Math.round(performance.now() - startedAt), completedAt: new Date() }).where(eq(aiRuns.id, run.id));
     throw error;
   }
 }

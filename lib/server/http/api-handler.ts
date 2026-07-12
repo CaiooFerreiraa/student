@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { AuthenticationRequiredError } from "@/lib/server/auth/authentication-error";
 
 type ApiHandler<Arguments extends unknown[]> = (...args: Arguments) => Promise<Response>;
 
@@ -12,6 +13,10 @@ function validationMessage(error: z.ZodError): string {
 }
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof AuthenticationRequiredError) {
+    return Response.json({ data: null, error: error.message }, { status: 401 });
+  }
+
   if (error instanceof z.ZodError) {
     return Response.json({ data: null, error: validationMessage(error) }, { status: 400 });
   }

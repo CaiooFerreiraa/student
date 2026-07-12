@@ -1,4 +1,6 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test";
+import { and, eq, or, sql } from "drizzle-orm";
+import "@/tests/helpers/clerk";
 
 mock.module("server-only", () => ({}));
 
@@ -8,7 +10,8 @@ let completeMaterialUpload: typeof import("@/app/api/materials/complete/route").
 let listMaterials: typeof import("@/app/api/materials/route").GET;
 let scheduleMaterialDeletion: typeof import("@/lib/server/materials/schedule-material-deletion").scheduleMaterialDeletion;
 let getCurrentUser: typeof import("@/lib/server/current-user").getCurrentUser;
-let prisma: typeof import("@/lib/server/prisma").prisma;
+let db: typeof import("@/lib/server/db").db;
+let tables: typeof import("@/lib/server/db/schema");
 let registerMaterialBlob: typeof import("@/lib/server/materials/register-material-blob").registerMaterialBlob;
 
 beforeAll(async () => {
@@ -17,7 +20,8 @@ beforeAll(async () => {
   ({ GET: listMaterials } = await import("@/app/api/materials/route"));
   ({ scheduleMaterialDeletion } = await import("@/lib/server/materials/schedule-material-deletion"));
   ({ getCurrentUser } = await import("@/lib/server/current-user"));
-  ({ prisma } = await import("@/lib/server/prisma"));
+  ({ db } = await import("@/lib/server/db"));
+  tables = await import("@/lib/server/db/schema");
   ({ registerMaterialBlob } = await import("@/lib/server/materials/register-material-blob"));
 });
 
@@ -92,22 +96,23 @@ describe("rotas persistentes de configurações e upload", () => {
       ]);
 
       expect(fromCallback.id).toBe(fromConfirmation.id);
-      expect(await prisma.fileAsset.count({ where: { pathname } })).toBe(1);
-      expect(await prisma.material.count({ where: { file: { pathname } } })).toBe(1);
-      expect(await prisma.material.count({ where: { file: { pathname }, subject: { name: "Direito Constitucional" } } })).toBe(1);
-      expect(await prisma.subject.count({ where: { ownerId: user.id, slug: "direito-constitucional" } })).toBe(1);
-      expect(await prisma.backgroundJob.count({ where: { idempotencyKey: `process-material:${fromCallback.id}:v1` } })).toBe(1);
+      const [counts] = await db.select({ files: sql<number>`count(distinct ${tables.fileAssets.id})::int`, materials: sql<number>`count(distinct ${tables.materials.id})::int` }).from(tables.fileAssets).leftJoin(tables.materials, eq(tables.materials.fileId, tables.fileAssets.id)).where(eq(tables.fileAssets.pathname, pathname));
+      expect(counts).toEqual({ files: 1, materials: 1 });
+      const [subjectCount] = await db.select({ value: sql<number>`count(*)::int` }).from(tables.subjects).where(and(eq(tables.subjects.ownerId, user.id), eq(tables.subjects.slug, "direito-constitucional")));
+      const [jobCount] = await db.select({ value: sql<number>`count(*)::int` }).from(tables.backgroundJobs).where(eq(tables.backgroundJobs.idempotencyKey, `process-material:${fromCallback.id}:v1`));
+      expect(subjectCount?.value).toBe(1);
+      expect(jobCount?.value).toBe(1);
       const listResponse = await listMaterials();
       const listBody = await listResponse.json() as { data: Array<{ id: string; subject: string; status: string; chunkCount: number }> };
       expect(listBody.data).toContainEqual(expect.objectContaining({ id: fromCallback.id, subject: "Direito Constitucional", status: "PENDING", chunkCount: 0 }));
     } finally {
-      const file = await prisma.fileAsset.findUnique({ where: { pathname }, include: { material: true } });
-      if (file?.material) {
-        await prisma.backgroundJob.deleteMany({ where: { targetType: "Material", targetId: file.material.id } });
-        await prisma.material.delete({ where: { id: file.material.id } });
+      const [row] = await db.select({ file: tables.fileAssets, material: tables.materials }).from(tables.fileAssets).leftJoin(tables.materials, eq(tables.materials.fileId, tables.fileAssets.id)).where(eq(tables.fileAssets.pathname, pathname)).limit(1);
+      if (row?.material) {
+        await db.delete(tables.backgroundJobs).where(and(eq(tables.backgroundJobs.targetType, "Material"), eq(tables.backgroundJobs.targetId, row.material.id)));
+        await db.delete(tables.materials).where(eq(tables.materials.id, row.material.id));
       }
-      if (file) await prisma.fileAsset.delete({ where: { id: file.id } });
-      await prisma.subject.deleteMany({ where: { ownerId: user.id, slug: "direito-constitucional", materials: { none: {} } } });
+      if (row?.file) await db.delete(tables.fileAssets).where(eq(tables.fileAssets.id, row.file.id));
+      await db.delete(tables.subjects).where(and(eq(tables.subjects.ownerId, user.id), eq(tables.subjects.slug, "direito-constitucional")));
     }
   });
 
@@ -128,15 +133,19 @@ describe("rotas persistentes de configurações e upload", () => {
       const result = await scheduleMaterialDeletion(user.id, material.id);
 
       expect(result).toMatchObject({ status: "scheduled", material: { id: material.id } });
-      expect(await prisma.material.findUnique({ where: { id: material.id }, select: { deletedAt: true } })).toMatchObject({ deletedAt: expect.any(Date) });
-      expect(await prisma.fileAsset.findUnique({ where: { pathname }, select: { status: true } })).toEqual({ status: "DELETE_PENDING" });
-      expect(await prisma.backgroundJob.count({ where: { idempotencyKey: `delete-blob:${material.fileId}` } })).toBe(1);
-      expect(await prisma.backgroundJob.findFirst({ where: { targetType: "Material", targetId: material.id }, select: { status: true } })).toEqual({ status: "CANCELLED" });
+      const [storedMaterial] = await db.select({ deletedAt: tables.materials.deletedAt }).from(tables.materials).where(eq(tables.materials.id, material.id));
+      const [storedFile] = await db.select({ status: tables.fileAssets.status }).from(tables.fileAssets).where(eq(tables.fileAssets.pathname, pathname));
+      const [deleteJobs] = await db.select({ value: sql<number>`count(*)::int` }).from(tables.backgroundJobs).where(eq(tables.backgroundJobs.idempotencyKey, `delete-blob:${material.fileId}`));
+      const [processJob] = await db.select({ status: tables.backgroundJobs.status }).from(tables.backgroundJobs).where(and(eq(tables.backgroundJobs.targetType, "Material"), eq(tables.backgroundJobs.targetId, material.id))).limit(1);
+      expect(storedMaterial).toMatchObject({ deletedAt: expect.any(Date) });
+      expect(storedFile).toEqual({ status: "DELETE_PENDING" });
+      expect(deleteJobs?.value).toBe(1);
+      expect(processJob).toEqual({ status: "CANCELLED" });
     } finally {
-      await prisma.backgroundJob.deleteMany({ where: { OR: [{ targetType: "Material", targetId: material.id }, { targetType: "FileAsset", targetId: material.fileId }] } });
-      await prisma.material.deleteMany({ where: { id: material.id } });
-      await prisma.fileAsset.deleteMany({ where: { id: material.fileId } });
-      await prisma.subject.deleteMany({ where: { ownerId: user.id, slug: "testes-de-exclusao", materials: { none: {} } } });
+      await db.delete(tables.backgroundJobs).where(or(and(eq(tables.backgroundJobs.targetType, "Material"), eq(tables.backgroundJobs.targetId, material.id)), and(eq(tables.backgroundJobs.targetType, "FileAsset"), eq(tables.backgroundJobs.targetId, material.fileId))));
+      await db.delete(tables.materials).where(eq(tables.materials.id, material.id));
+      await db.delete(tables.fileAssets).where(eq(tables.fileAssets.id, material.fileId));
+      await db.delete(tables.subjects).where(and(eq(tables.subjects.ownerId, user.id), eq(tables.subjects.slug, "testes-de-exclusao")));
     }
   });
 });

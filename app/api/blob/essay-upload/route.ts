@@ -9,7 +9,6 @@ import { registerEssayBlob } from "@/lib/server/essays/register-essay-blob";
 const payloadSchema = z.object({ submissionId: z.string().uuid(), originalName: z.string().min(1).max(255), position: z.number().int().min(0).max(9) });
 
 export const POST = withApiErrorBoundary(async (request: Request): Promise<Response> => {
-  const user = await getCurrentUser();
   const env = getBlobEnv();
   const body = await request.json() as HandleUploadBody;
   const result = await handleUpload({
@@ -17,6 +16,7 @@ export const POST = withApiErrorBoundary(async (request: Request): Promise<Respo
     body,
     token: env.BLOB_READ_WRITE_TOKEN,
     onBeforeGenerateToken: async (pathname, clientPayload) => {
+      const user = await getCurrentUser();
       const payload = payloadSchema.parse(JSON.parse(clientPayload ?? "{}"));
       if (!pathname.startsWith(`users/${user.id}/essays/${payload.submissionId}/`)) throw new Error("Pathname inválido.");
       return {

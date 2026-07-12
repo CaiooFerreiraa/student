@@ -3,7 +3,6 @@ import { z } from "zod";
 
 const databaseSchema = z.object({
   DATABASE_URL: z.string().url().startsWith("postgres"),
-  DEMO_USER_EMAIL: z.string().email().default("caio@lumina.local"),
 });
 
 const blobSchema = z.object({
@@ -19,7 +18,6 @@ const aiSchema = z.object({
 
 export const databaseEnv = databaseSchema.parse({
   DATABASE_URL: process.env.DATABASE_URL,
-  DEMO_USER_EMAIL: process.env.DEMO_USER_EMAIL,
 });
 
 export function getBlobEnv(): z.infer<typeof blobSchema> {

@@ -3,12 +3,14 @@ import { createHash } from "node:crypto";
 import { get } from "@vercel/blob";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { OpenAIEmbeddings } from "@langchain/openai";
-import { ProcessingStatus } from "@/generated/prisma/enums";
+import { and, asc, eq } from "drizzle-orm";
+import { ProcessingStatus } from "@/domain/enums";
+import { db } from "@/lib/server/db";
+import { backgroundJobs, fileAssets, materialChunks, materials } from "@/lib/server/db/schema";
 import { getAiEnv, getBlobEnv, hasAiConfiguration } from "@/lib/server/env";
 import { loadDocumentsFromFile, type LoadedDocument } from "@/lib/server/materials/document-loader";
 import { replaceMaterialChunks } from "@/lib/server/materials/material-chunk-repository";
 import { setMaterialChunkEmbeddings } from "@/lib/server/materials/material-chunk-vector-store";
-import { prisma } from "@/lib/server/prisma";
 
 async function loadDocuments(pathname: string, contentType: string): Promise<LoadedDocument[]> {
   const blobEnv = getBlobEnv();
@@ -29,20 +31,21 @@ function pageNumber(metadata: Record<string, unknown>): number | null {
 }
 
 export async function processMaterialJob(materialId: string): Promise<void> {
-  const material = await prisma.material.findUnique({ where: { id: materialId }, include: { file: true } });
-  if (!material || material.deletedAt) return;
+  const [row] = await db.select({ material: materials, file: fileAssets }).from(materials)
+    .innerJoin(fileAssets, eq(materials.fileId, fileAssets.id)).where(eq(materials.id, materialId)).limit(1);
+  if (!row || row.material.deletedAt) return;
+  const { file } = row;
 
-  const job = await prisma.backgroundJob.findFirst({
-    where: { targetType: "Material", targetId: materialId, kind: "PROCESS_MATERIAL" },
+  const [job] = await db.select().from(backgroundJobs).where(and(eq(backgroundJobs.targetType, "Material"), eq(backgroundJobs.targetId, materialId), eq(backgroundJobs.kind, "PROCESS_MATERIAL"))).limit(1);
+
+  const startedAt = new Date();
+  await db.transaction(async (transaction) => {
+    await transaction.update(materials).set({ processingStatus: ProcessingStatus.PROCESSING, processingError: null, updatedAt: startedAt }).where(eq(materials.id, materialId));
+    if (job) await transaction.update(backgroundJobs).set({ status: "RUNNING", attempts: job.attempts + 1, lockedAt: startedAt, updatedAt: startedAt }).where(eq(backgroundJobs.id, job.id));
   });
 
-  await prisma.$transaction([
-    prisma.material.update({ where: { id: materialId }, data: { processingStatus: ProcessingStatus.PROCESSING, processingError: null } }),
-    ...(job ? [prisma.backgroundJob.update({ where: { id: job.id }, data: { status: "RUNNING", attempts: { increment: 1 }, lockedAt: new Date() } })] : []),
-  ]);
-
   try {
-    const loaded = await loadDocuments(material.file.pathname, material.file.contentType);
+    const loaded = await loadDocuments(file.pathname, file.contentType);
     const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 1_000, chunkOverlap: 150 });
     const chunks = await splitter.splitDocuments(loaded);
     const cleanChunks = chunks
@@ -72,7 +75,7 @@ export async function processMaterialJob(materialId: string): Promise<void> {
       const aiEnv = getAiEnv();
       const embeddings = new OpenAIEmbeddings({ apiKey: aiEnv.OPENAI_API_KEY, model: aiEnv.OPENAI_EMBEDDING_MODEL });
       const vectors = await embeddings.embedDocuments(cleanChunks.map((chunk) => chunk.content));
-      const stored = await prisma.materialChunk.findMany({ where: { materialId }, orderBy: { position: "asc" }, select: { id: true } });
+      const stored = await db.select({ id: materialChunks.id }).from(materialChunks).where(eq(materialChunks.materialId, materialId)).orderBy(asc(materialChunks.position));
       await setMaterialChunkEmbeddings(
         stored.flatMap((row, index) => {
           const embedding = vectors[index];
@@ -81,16 +84,18 @@ export async function processMaterialJob(materialId: string): Promise<void> {
       );
     }
 
-    await prisma.$transaction([
-      prisma.material.update({ where: { id: materialId }, data: { processingStatus: ProcessingStatus.READY, pageCount: loaded.length, processedAt: new Date() } }),
-      ...(job ? [prisma.backgroundJob.update({ where: { id: job.id }, data: { status: "SUCCEEDED", lockedAt: null, lockedBy: null } })] : []),
-    ]);
+    const completedAt = new Date();
+    await db.transaction(async (transaction) => {
+      await transaction.update(materials).set({ processingStatus: ProcessingStatus.READY, pageCount: loaded.length, processedAt: completedAt, updatedAt: completedAt }).where(eq(materials.id, materialId));
+      if (job) await transaction.update(backgroundJobs).set({ status: "SUCCEEDED", lockedAt: null, lockedBy: null, updatedAt: completedAt }).where(eq(backgroundJobs.id, job.id));
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falha desconhecida no processamento.";
-    await prisma.$transaction([
-      prisma.material.update({ where: { id: materialId }, data: { processingStatus: ProcessingStatus.FAILED, processingError: message } }),
-      ...(job ? [prisma.backgroundJob.update({ where: { id: job.id }, data: { status: "FAILED", lastError: message, lockedAt: null } })] : []),
-    ]);
+    const failedAt = new Date();
+    await db.transaction(async (transaction) => {
+      await transaction.update(materials).set({ processingStatus: ProcessingStatus.FAILED, processingError: message, updatedAt: failedAt }).where(eq(materials.id, materialId));
+      if (job) await transaction.update(backgroundJobs).set({ status: "FAILED", lastError: message, lockedAt: null, updatedAt: failedAt }).where(eq(backgroundJobs.id, job.id));
+    });
     throw error;
   }
 }

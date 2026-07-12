@@ -19,6 +19,28 @@ function expectAllPropertiesRequired(schema: JsonSchemaNode): void {
 }
 
 describe("schema de geração do quiz", () => {
+  test("rejeita enunciado que depende de um destaque visual inexistente", () => {
+    const schema = createGeneratedQuizSchema({ multipleChoice: 0, trueFalse: 1, open: 0 });
+    const result = schema.safeParse({
+      multipleChoice: [],
+      trueFalse: [{
+        type: "TRUE_FALSE",
+        statement: "A palavra destacada no enunciado representa o conceito central?",
+        explanation: "A afirmação deve ser avaliada segundo a fonte indicada.",
+        difficulty: "EASY",
+        points: 1,
+        options: null,
+        correctBoolean: true,
+        modelAnswer: null,
+        gradingRubric: null,
+        sourceKeys: ["SOURCE_1"],
+      }],
+      open: [],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   test("gera um JSON Schema strict sem propriedades opcionais", () => {
     const schema = z.toJSONSchema(generatedQuizSchema) as unknown as JsonSchemaNode;
 

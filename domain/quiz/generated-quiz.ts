@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { QuestionType } from "@/generated/prisma/enums";
+import { QuestionType } from "@/domain/enums";
+
+const unsupportedVisualReference = /\b(destacad[oa]s?|grifad[oa]s?|sublinhad[oa]s?|em\s+negrito|em\s+it[aá]lico)\b/i;
 
 const generatedOptionSchema = z.object({
   content: z.string().min(1),
@@ -9,7 +11,10 @@ const generatedOptionSchema = z.object({
 
 export const generatedQuestionSchema = z.object({
   type: z.enum(QuestionType),
-  statement: z.string().min(10),
+  statement: z.string().min(10).refine(
+    (statement) => !unsupportedVisualReference.test(statement),
+    "O enunciado não pode depender de destaque visual que não será exibido.",
+  ),
   explanation: z.string().min(10),
   difficulty: z.enum(["EASY", "MEDIUM", "HARD"]),
   points: z.number().int().min(1).max(100),

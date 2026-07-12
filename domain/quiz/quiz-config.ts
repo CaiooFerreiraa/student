@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AnswerRevealMode, DifficultyLevel, EducationLevel, GenerationMode, QuizMode } from "@/generated/prisma/enums";
+import { AnswerRevealMode, DifficultyLevel, EducationLevel, GenerationMode, QuizMode } from "@/domain/enums";
 
 export const createQuizSchema = z.object({
   title: z.string().trim().min(3).max(160),

@@ -1,9 +1,8 @@
-import Image from "next/image";
-import Link from "next/link";
+import { UserButton } from "@clerk/nextjs";
 import { Bell, Flame, Search } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
-export function AppTopbar({ displayName, streak }: { displayName: string; streak: number }) {
+export function AppTopbar({ streak }: { streak: number }) {
   return (
     <header className="sticky top-0 z-20 w-full min-w-0 border-b border-slate-200/70 bg-[rgba(247,249,253,.86)] px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-[1680px] items-center gap-3">
@@ -26,9 +25,11 @@ export function AppTopbar({ displayName, streak }: { displayName: string; streak
             <Bell className="size-5" />
             <span className="absolute right-2.5 top-2 size-2 rounded-full bg-blue-600 ring-2 ring-[#f7f9fd]" />
           </button>
-          <Link href="/profile" className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
-            <Image src="/robozinho-student.png" alt={`Perfil de ${displayName}`} width={44} height={44} className="size-11 rounded-full border-2 border-white bg-blue-100 object-cover object-top shadow-sm" />
-          </Link>
+          <UserButton
+            userProfileMode="navigation"
+            userProfileUrl="/profile"
+            appearance={{ elements: { avatarBox: "size-11 border-2 border-white shadow-sm" } }}
+          />
         </div>
       </div>
     </header>

@@ -1,7 +1,9 @@
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/server/current-user";
+import { db } from "@/lib/server/db";
+import { essaySubmissions } from "@/lib/server/db/schema";
 import { withApiErrorBoundary } from "@/lib/server/http/api-handler";
-import { prisma } from "@/lib/server/prisma";
 
 const schema = z.object({ text: z.string().trim().min(1).max(30_000) });
 
@@ -9,8 +11,7 @@ export const PATCH = withApiErrorBoundary(async (request: Request, context: Rout
   const user = await getCurrentUser();
   const { id } = await context.params;
   const input = schema.parse(await request.json());
-  const submission = await prisma.essaySubmission.findFirst({ where: { id, userId: user.id } });
-  if (!submission) return Response.json({ data: null, error: "Submissão não encontrada." }, { status: 404 });
-  const updated = await prisma.essaySubmission.update({ where: { id }, data: { confirmedText: input.text, confirmedAt: new Date(), status: "READY_TO_GRADE" } });
+  const [updated] = await db.update(essaySubmissions).set({ confirmedText: input.text, confirmedAt: new Date(), status: "READY_TO_GRADE" }).where(and(eq(essaySubmissions.id, id), eq(essaySubmissions.userId, user.id))).returning();
+  if (!updated) return Response.json({ data: null, error: "Submissão não encontrada." }, { status: 404 });
   return Response.json({ data: updated, error: null });
 });

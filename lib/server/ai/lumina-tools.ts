@@ -1,22 +1,22 @@
 import "server-only";
 import { tool } from "@langchain/core/tools";
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { and, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import { z } from "zod";
-import { DifficultyLevel, EducationLevel, GenerationMode, QuizMode } from "@/generated/prisma/enums";
+import { DifficultyLevel, EducationLevel, GenerationMode, QuizMode } from "@/domain/enums";
+import { db } from "@/lib/server/db";
+import { materials, quizzes, quizVersions, subjects } from "@/lib/server/db/schema";
 import { getAiEnv } from "@/lib/server/env";
 import { searchMaterialChunksBySimilarity } from "@/lib/server/materials/material-chunk-vector-store";
-import { prisma } from "@/lib/server/prisma";
 
 export function createLuminaTools(userId: string) {
   const listMaterials = tool(
     async ({ limit }) => {
-      const materials = await prisma.material.findMany({
-        where: { ownerId: userId, deletedAt: null, processingStatus: "READY" },
-        orderBy: { updatedAt: "desc" },
-        take: limit,
-        select: { id: true, title: true, type: true, pageCount: true, subject: { select: { name: true } } },
-      });
-      return JSON.stringify(materials);
+      const rows = await db.select({ id: materials.id, title: materials.title, type: materials.type, pageCount: materials.pageCount, subjectName: subjects.name })
+        .from(materials).leftJoin(subjects, eq(materials.subjectId, subjects.id))
+        .where(and(eq(materials.ownerId, userId), isNull(materials.deletedAt), eq(materials.processingStatus, "READY")))
+        .orderBy(desc(materials.updatedAt)).limit(limit);
+      return JSON.stringify(rows.map((row) => ({ ...row, subject: row.subjectName ? { name: row.subjectName } : null, subjectName: undefined })));
     },
     {
       name: "list_materials",
@@ -42,31 +42,14 @@ export function createLuminaTools(userId: string) {
 
   const createQuizDraft = tool(
     async (input) => {
-      const subject = input.subject
-        ? await prisma.subject.findFirst({ where: { name: { equals: input.subject, mode: "insensitive" }, OR: [{ ownerId: userId }, { ownerId: null }] } })
-        : null;
-      const quiz = await prisma.quiz.create({
-        data: {
-          ownerId: userId,
-          subjectId: subject?.id,
-          title: input.title,
-          description: input.description,
-          status: "DRAFT",
-          versions: {
-            create: {
-              versionNumber: 1,
-              status: "DRAFT",
-              educationLevel: input.educationLevel as EducationLevel,
-              difficulty: input.difficulty as DifficultyLevel,
-              mode: input.mode as QuizMode,
-              generationMode: GenerationMode.AI,
-              requestedQuestionCount: input.questionCount,
-            },
-          },
-        },
-        include: { versions: { select: { id: true, versionNumber: true } } },
+      const [subject] = input.subject ? await db.select().from(subjects).where(and(ilike(subjects.name, input.subject), or(eq(subjects.ownerId, userId), isNull(subjects.ownerId)))).limit(1) : [];
+      const result = await db.transaction(async (transaction) => {
+        const [quiz] = await transaction.insert(quizzes).values({ ownerId: userId, subjectId: subject?.id, title: input.title, description: input.description, status: "DRAFT", updatedAt: new Date() }).returning();
+        if (!quiz) throw new Error("Não foi possível criar o quiz.");
+        const [version] = await transaction.insert(quizVersions).values({ quizId: quiz.id, versionNumber: 1, status: "DRAFT", educationLevel: input.educationLevel as EducationLevel, difficulty: input.difficulty as DifficultyLevel, mode: input.mode as QuizMode, generationMode: GenerationMode.AI, requestedQuestionCount: input.questionCount }).returning({ versionNumber: quizVersions.versionNumber });
+        return { quiz, version };
       });
-      return JSON.stringify({ quizId: quiz.id, title: quiz.title, version: quiz.versions[0]?.versionNumber, status: quiz.status });
+      return JSON.stringify({ quizId: result.quiz.id, title: result.quiz.title, version: result.version?.versionNumber, status: result.quiz.status });
     },
     {
       name: "create_quiz_draft",

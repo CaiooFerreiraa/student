@@ -40,7 +40,7 @@ describe("persistência do quiz gerado", () => {
         quizId: quiz.id,
         versionId: version.id,
         aiRunId: aiRun.id,
-        questions: [{ type: "MULTIPLE_CHOICE", statement: "Qual alternativa está fundamentada no conteúdo fornecido?", explanation: "A fonte vinculada contém o conteúdo usado na alternativa correta.", difficulty: "MEDIUM", points: 5, options: [{ content: "Alternativa correta", isCorrect: true, explanation: "Correta porque corresponde ao conteúdo da fonte." }, { content: "Alternativa incorreta", isCorrect: false, explanation: "Incorreta porque contradiz o conteúdo da fonte." }], correctBoolean: null, modelAnswer: null, gradingRubric: null, sourceKeys: ["SOURCE_1"] }],
+        questions: [{ type: "MULTIPLE_CHOICE", statement: "Qual alternativa aplica corretamente o conceito de pressão atmosférica?", explanation: "A pressão atmosférica interfere nas condições em que uma substância passa ao estado gasoso. Quando a pressão externa diminui, as moléculas vencem essa resistência com menos energia, o que reduz a temperatura de ebulição.", difficulty: "MEDIUM", points: 5, options: [{ content: "A menor pressão externa reduz a temperatura de ebulição.", isCorrect: true, explanation: "A alternativa relaciona corretamente a menor resistência externa à passagem das moléculas para o estado gasoso." }, { content: "A menor pressão externa sempre aumenta a temperatura de ebulição.", isCorrect: false, explanation: "A relação está invertida: com menor pressão externa, a substância precisa de menos energia para entrar em ebulição." }], correctBoolean: null, modelAnswer: null, gradingRubric: null, sourceKeys: ["SOURCE_1"] }],
         sources: new Map([["SOURCE_1", chunk]]),
       });
 
@@ -62,8 +62,8 @@ describe("persistência do quiz gerado", () => {
       const review = await getAttemptReview(user.id, attempt.id);
       expect(history.map((item) => item.id)).toContain(attempt.id);
       expect(review?.questions[0]?.answer?.selectedOptionId).toBe(wrongOption.id);
-      expect(review?.questions[0]?.options.find((option) => option.isCorrect)?.explanation).toContain("conteúdo da fonte");
-      expect(review?.questions[0]?.options.find((option) => option.id === wrongOption.id)?.explanation).toContain("contradiz");
+      expect(review?.questions[0]?.options.find((option) => option.isCorrect)?.explanation).toContain("resistência externa");
+      expect(review?.questions[0]?.options.find((option) => option.id === wrongOption.id)?.explanation).toContain("relação está invertida");
       await db.delete(tables.quizAttempts).where(eq(tables.quizAttempts.id, attempt.id));
     } finally {
       await db.delete(tables.quizAttempts).where(eq(tables.quizAttempts.quizId, quiz.id));

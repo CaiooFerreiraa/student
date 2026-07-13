@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { createGeneratedQuizSchema, flattenGeneratedQuiz, generatedQuizSchema } from "@/domain/quiz/generated-quiz";
+import {
+  createGeneratedQuizSchema,
+  flattenGeneratedQuiz,
+  generatedQuizSchema,
+} from "@/domain/quiz/generated-quiz";
 
 type JsonSchemaNode = {
   anyOf?: JsonSchemaNode[];
@@ -8,6 +12,25 @@ type JsonSchemaNode = {
   properties?: Record<string, JsonSchemaNode>;
   required?: string[];
 };
+
+const pedagogicalExplanation =
+  "Ao nível do mar, a pressão atmosférica permite que a água atinja a ebulição por volta de 100 °C. Em maiores altitudes, a pressão externa diminui e a ebulição ocorre em temperatura menor, por isso o valor não é universal.";
+
+function trueFalseQuestion(overrides: Record<string, unknown> = {}) {
+  return {
+    type: "TRUE_FALSE",
+    statement: "A água ferve a aproximadamente 100 °C ao nível do mar.",
+    explanation: pedagogicalExplanation,
+    difficulty: "EASY",
+    points: 10,
+    options: null,
+    correctBoolean: true,
+    modelAnswer: null,
+    gradingRubric: null,
+    sourceKeys: ["SOURCE_1"],
+    ...overrides,
+  };
+}
 
 function expectAllPropertiesRequired(schema: JsonSchemaNode): void {
   if (schema.properties) {
@@ -19,22 +42,72 @@ function expectAllPropertiesRequired(schema: JsonSchemaNode): void {
 }
 
 describe("schema de geração do quiz", () => {
-  test("rejeita enunciado que depende de um destaque visual inexistente", () => {
+  test("rejeita a expressão 'em destaque' quando a interface não exibe um destaque", () => {
     const schema = createGeneratedQuizSchema({ multipleChoice: 0, trueFalse: 1, open: 0 });
     const result = schema.safeParse({
       multipleChoice: [],
-      trueFalse: [{
-        type: "TRUE_FALSE",
-        statement: "A palavra destacada no enunciado representa o conceito central?",
-        explanation: "A afirmação deve ser avaliada segundo a fonte indicada.",
-        difficulty: "EASY",
-        points: 1,
-        options: null,
-        correctBoolean: true,
+      trueFalse: [trueFalseQuestion({
+        statement: "A expressão em destaque representa o conceito central da proposição?",
+      })],
+      open: [],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  test("rejeita enunciado que depende de consulta ao material", () => {
+    const result = generatedQuizSchema.safeParse({
+      questions: [trueFalseQuestion({
+        statement: "Segundo o material, a água ferve a aproximadamente 100 °C?",
+      })],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  test("rejeita explicação curta ou que apenas atribui a resposta ao material", () => {
+    const shortResult = generatedQuizSchema.safeParse({
+      questions: [trueFalseQuestion({ explanation: "A resposta está correta." })],
+    });
+    const sourceResult = generatedQuizSchema.safeParse({
+      questions: [trueFalseQuestion({
+        explanation:
+          "O material afirma que a água ferve a aproximadamente 100 °C ao nível do mar, portanto a proposição deve ser aceita. Essa confirmação seria suficiente para marcar a alternativa como verdadeira, sem desenvolver outro raciocínio.",
+      })],
+    });
+
+    expect(shortResult.success).toBe(false);
+    expect(sourceResult.success).toBe(false);
+  });
+
+  test("exige uma justificativa conceitual para cada alternativa", () => {
+    const schema = createGeneratedQuizSchema({ multipleChoice: 1, trueFalse: 0, open: 0 });
+    const result = schema.safeParse({
+      multipleChoice: [{
+        type: "MULTIPLE_CHOICE",
+        statement: "Qual situação tende a reduzir o ponto de ebulição da água?",
+        explanation: pedagogicalExplanation,
+        difficulty: "MEDIUM",
+        points: 5,
+        options: [
+          {
+            content: "Aumento da altitude",
+            isCorrect: true,
+            explanation: "Correta.",
+          },
+          {
+            content: "Aumento da pressão externa",
+            isCorrect: false,
+            explanation:
+              "O aumento da pressão externa exige mais energia para a formação de vapor e, por isso, eleva a temperatura de ebulição.",
+          },
+        ],
+        correctBoolean: null,
         modelAnswer: null,
         gradingRubric: null,
         sourceKeys: ["SOURCE_1"],
       }],
+      trueFalse: [],
       open: [],
     });
 
@@ -47,68 +120,20 @@ describe("schema de geração do quiz", () => {
     expectAllPropertiesRequired(schema);
   });
 
-  test("aceita null nos campos que não se aplicam à questão", () => {
+  test("aceita uma explicação didática e null nos campos que não se aplicam", () => {
     const result = generatedQuizSchema.safeParse({
-      questions: [{
-        type: "TRUE_FALSE",
-        statement: "A água ferve a 100 °C ao nível do mar.",
-        explanation: "A pressão atmosférica altera o ponto de ebulição.",
-        difficulty: "EASY",
-        points: 10,
-        options: null,
-        correctBoolean: true,
-        modelAnswer: null,
-        gradingRubric: null,
-        sourceKeys: ["SOURCE_1"],
-      }],
+      questions: [trueFalseQuestion()],
     });
 
     expect(result.success).toBe(true);
   });
 
   test("exige exatamente a distribuição configurada", () => {
-    const schema = createGeneratedQuizSchema({ multipleChoice: 2, trueFalse: 1, open: 1 });
-    const multipleChoice = {
-      type: "MULTIPLE_CHOICE" as const,
-      statement: "Qual alternativa corresponde ao conteúdo da fonte?",
-      explanation: "A alternativa correta está fundamentada na fonte indicada.",
-      difficulty: "MEDIUM" as const,
-      points: 5,
-      options: [
-        { content: "Alternativa correta", isCorrect: true, explanation: "Correta." },
-        { content: "Alternativa incorreta", isCorrect: false, explanation: "Incorreta." },
-      ],
-      correctBoolean: null,
-      modelAnswer: null,
-      gradingRubric: null,
-      sourceKeys: ["SOURCE_1"],
-    };
+    const schema = createGeneratedQuizSchema({ multipleChoice: 0, trueFalse: 2, open: 0 });
     const result = schema.safeParse({
-      multipleChoice: [multipleChoice],
-      trueFalse: [{
-        type: "TRUE_FALSE",
-        statement: "A afirmação apresentada está de acordo com a fonte?",
-        explanation: "A fonte confirma a afirmação apresentada.",
-        difficulty: "MEDIUM",
-        points: 5,
-        options: null,
-        correctBoolean: true,
-        modelAnswer: null,
-        gradingRubric: null,
-        sourceKeys: ["SOURCE_1"],
-      }],
-      open: [{
-        type: "OPEN",
-        statement: "Explique o conceito apresentado no material fornecido.",
-        explanation: "A resposta deve recuperar os elementos centrais da fonte.",
-        difficulty: "MEDIUM",
-        points: 5,
-        options: null,
-        correctBoolean: null,
-        modelAnswer: "O conceito deve ser explicado com base na fonte.",
-        gradingRubric: { criteria: ["Fidelidade à fonte"] },
-        sourceKeys: ["SOURCE_1"],
-      }],
+      multipleChoice: [],
+      trueFalse: [trueFalseQuestion()],
+      open: [],
     });
 
     expect(result.success).toBe(false);
@@ -118,18 +143,7 @@ describe("schema de geração do quiz", () => {
     const schema = createGeneratedQuizSchema({ multipleChoice: 0, trueFalse: 1, open: 0 });
     const parsed = schema.parse({
       multipleChoice: [],
-      trueFalse: [{
-        type: "TRUE_FALSE",
-        statement: "A afirmação está fundamentada no material fornecido?",
-        explanation: "A justificativa deve apontar a evidência da fonte.",
-        difficulty: "EASY",
-        points: 5,
-        options: null,
-        correctBoolean: true,
-        modelAnswer: null,
-        gradingRubric: null,
-        sourceKeys: ["SOURCE_1"],
-      }],
+      trueFalse: [trueFalseQuestion()],
       open: [],
     });
 

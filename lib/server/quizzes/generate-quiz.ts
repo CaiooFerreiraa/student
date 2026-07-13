@@ -7,13 +7,14 @@ import {
   flattenGeneratedQuiz,
   type GeneratedQuestion,
 } from "@/domain/quiz/generated-quiz";
+import { assertGeneratedQuestionsAreOriginal } from "@/domain/quiz/generated-quiz-quality";
 import { AiFeature, RunStatus } from "@/domain/enums";
 import { db } from "@/lib/server/db";
 import { aiRuns, materialChunks, materials, quizzes, quizVersionMaterials, quizVersions, subjects } from "@/lib/server/db/schema";
 import { getAiEnv } from "@/lib/server/env";
 import { persistGeneratedQuiz } from "@/lib/server/quizzes/persist-generated-quiz";
 
-export const QUIZ_GENERATION_PROMPT_VERSION = "quiz-generation-v4";
+export const QUIZ_GENERATION_PROMPT_VERSION = "quiz-generation-v5";
 
 type Distribution = { multipleChoice: number; trueFalse: number; open: number };
 
@@ -31,19 +32,27 @@ async function generateStructuredQuestions(
   model: ChatOpenAI,
   prompt: string,
   expected: Distribution,
+  sourceContents: string[],
 ): Promise<GeneratedQuestion[]> {
   const schema = createGeneratedQuizSchema(expected);
   const structured = model.withStructuredOutput(schema, {
-    name: "generated_quiz_v3",
+    name: "generated_quiz_v5",
   });
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
+      const correction = attempt === 1 ? "" : [
+        "CORREÇÃO OBRIGATÓRIA: a tentativa anterior foi rejeitada.",
+        lastError instanceof Error ? `Motivo: ${lastError.message}` : "Motivo: saída inválida.",
+        "Refaça todos os blocos, mantendo as quantidades exatas e corrigindo o problema apontado.",
+      ].join("\n");
       const result = await structured.invoke(
-        `${prompt}\n\n${attempt === 1 ? "" : "CORREÇÃO OBRIGATÓRIA: a tentativa anterior não respeitou o schema. Retorne novamente todos os blocos com as quantidades exatas."}`,
+        `${prompt}\n\n${correction}`,
       );
-      return flattenGeneratedQuiz(result);
+      const questions = flattenGeneratedQuiz(result);
+      assertGeneratedQuestionsAreOriginal(questions, sourceContents);
+      return questions;
     } catch (error) {
       lastError = error;
     }
@@ -110,8 +119,54 @@ export async function generateQuizVersion(
     });
     const questions = await generateStructuredQuestions(
       model,
-      `Gere um quiz usando exclusivamente as fontes fornecidas. Não invente fatos. Cada questão deve citar ao menos uma SOURCE válida. Os enunciados são exibidos como texto uniforme: nunca se refira a palavra, termo ou trecho "destacado", "grifado", "sublinhado", "em negrito" ou "em itálico". Quando precisar indicar um termo específico, reproduza-o explicitamente entre aspas no próprio enunciado. Retorne um objeto com três arrays: multipleChoice com EXATAMENTE ${expected.multipleChoice} itens, trueFalse com EXATAMENTE ${expected.trueFalse} itens e open com EXATAMENTE ${expected.open} itens. Não mova questões entre os arrays. Preencha com null os campos que não se aplicam ao tipo de questão e explicações de alternativas ausentes.\n\nTítulo: ${quiz.title}\nDescrição: ${quiz.description ?? ""}\nDisciplina: ${quizRow?.subject?.name ?? "Geral"}\nEscolaridade: ${version.educationLevel}\nDificuldade: ${version.difficulty}\n\nFONTES:\n${contextParts.join("\n\n")}`,
+      `Gere um quiz usando exclusivamente as fontes fornecidas. Não invente fatos. Cada questão deve citar ao menos uma SOURCE válida.
+
+FLUXO OBRIGATÓRIO DE GERAÇÃO — execute internamente nesta ordem:
+
+ETAPA 1 — ANALISAR AS FONTES
+- Separe conteúdo expositivo de exercícios, provas, perguntas e gabaritos já existentes.
+- Extraia conceitos, relações, regras, causas, consequências e exemplos que podem ser ensinados.
+- Condição de avanço: saber qual conhecimento sustenta cada questão planejada.
+
+ETAPA 2 — PLANEJAR QUESTÕES ORIGINAIS
+- Quando uma SOURCE contiver perguntas, use somente o assunto e o conhecimento subjacente.
+- É PROIBIDO copiar, completar, converter o tipo ou fazer paráfrase próxima de uma pergunta da SOURCE.
+- Crie outro enunciado, outra situação e outra operação cognitiva. Exemplo: se a fonte pede uma definição, crie uma aplicação em cenário; se pede aplicação, crie comparação ou diagnóstico.
+- Se não for possível criar uma questão realmente nova a partir de um trecho, não use esse trecho.
+- Condição de avanço: cada questão deve continuar válida mesmo para quem nunca viu o material original.
+
+ETAPA 3 — ESCREVER PARA ENSINAR
+- Enunciado autossuficiente: não escreva “segundo o material”, “conforme a fonte”, “no trecho apresentado” ou equivalentes.
+- A interface exibe o enunciado com formatação uniforme. Nunca se refira a “em destaque”, “destacado”, “grifo”, “sublinhado”, “negrito” ou “itálico”. Para indicar um termo, escreva-o explicitamente entre aspas.
+- A explicação geral deve ter ao menos 140 caracteres e ensinar em duas ou mais frases: (1) apresente a resposta ou princípio correto; (2) desenvolva o raciocínio causal, lógico ou conceitual; (3) esclareça o erro ou confusão mais provável. Não use “o material diz/fala/confirma” como justificativa.
+- Em verdadeiro/falso, explique a proposição e, quando falsa, formule explicitamente a correção.
+- Em múltipla escolha, TODA alternativa deve ter explicação de ao menos 60 caracteres mostrando conceitualmente por que ela está correta ou incorreta.
+- Em questão aberta, forneça resposta-modelo didática com ao menos 120 caracteres e critérios objetivos de correção.
+
+ETAPA 4 — AUDITAR ANTES DE RESPONDER
+Para cada questão, confirme internamente:
+[ ] É original e não reproduz uma pergunta da fonte.
+[ ] É autossuficiente e não depende de destaque visual nem de consulta ao material.
+[ ] A explicação ensina o raciocínio, em vez de apenas declarar que a fonte confirma a resposta.
+[ ] Cada alternativa possui justificativa específica.
+[ ] Todas as SOURCE keys existem e sustentam os fatos usados.
+Se qualquer item falhar, reescreva a questão antes de retornar.
+
+CONTRATO DE SAÍDA:
+- Retorne multipleChoice com EXATAMENTE ${expected.multipleChoice} itens, trueFalse com EXATAMENTE ${expected.trueFalse} itens e open com EXATAMENTE ${expected.open} itens.
+- Não mova questões entre arrays.
+- Use null somente nos campos que não se aplicam ao tipo de questão. Explicações das alternativas de múltipla escolha nunca são null.
+
+Título: ${quiz.title}
+Descrição: ${quiz.description ?? ""}
+Disciplina: ${quizRow?.subject?.name ?? "Geral"}
+Escolaridade: ${version.educationLevel}
+Dificuldade: ${version.difficulty}
+
+FONTES:
+${contextParts.join("\n\n")}`,
       expected,
+      [...sourceMap.values()].map((chunk) => chunk.content),
     );
 
     await persistGeneratedQuiz({

@@ -85,7 +85,7 @@ export default async function QuizzesPage() {
             return (
               <article
                 key={quiz.id}
-                className="rounded-2xl border border-slate-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg"
+                className="rounded-2xl border border-border bg-card p-5 transition hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg"
               >
                 <div className="flex items-start justify-between">
                   <span className="grid size-11 place-items-center rounded-xl bg-blue-50 text-blue-600">

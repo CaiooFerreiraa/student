@@ -7,6 +7,7 @@ import {
   Check,
   FileText,
   PenLine,
+  Plus,
   Send,
   Sparkles,
   UploadCloud,
@@ -29,6 +30,13 @@ export type EssaySubmissionItem = {
   status: string;
   score: number | null;
   startedAt: string;
+};
+export type EssayRubricItem = {
+  id: string;
+  name: string;
+  version: number;
+  type: string;
+  maximumScore: number;
 };
 type SubmissionDetail = {
   id: string;
@@ -59,17 +67,25 @@ function safe(name: string): string {
 export function EssayWorkspace({
   userId,
   assignments,
+  rubrics,
   initialSubmissions,
   blobEnabled,
   aiEnabled,
 }: {
   userId: string;
   assignments: EssayAssignmentItem[];
+  rubrics: EssayRubricItem[];
   initialSubmissions: EssaySubmissionItem[];
   blobEnabled: boolean;
   aiEnabled: boolean;
 }) {
+  const [assignmentOptions, setAssignmentOptions] = useState(assignments);
   const [assignmentId, setAssignmentId] = useState(assignments[0]?.id ?? "");
+  const [creatingProposal, setCreatingProposal] = useState(false);
+  const [savingProposal, setSavingProposal] = useState(false);
+  const [proposalTitle, setProposalTitle] = useState("");
+  const [proposalPrompt, setProposalPrompt] = useState("");
+  const [proposalRubricId, setProposalRubricId] = useState(rubrics[0]?.id ?? "");
   const [inputType, setInputType] = useState("TEXT");
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -82,7 +98,61 @@ export function EssayWorkspace({
   const configurationNotice = aiEnabled
     ? null
     : "Configure OPENAI_API_KEY para transcrever imagens e corrigir redações.";
-  const assignment = assignments.find((item) => item.id === assignmentId);
+  const assignment = assignmentOptions.find((item) => item.id === assignmentId);
+
+  async function createProposal(): Promise<void> {
+    const title = proposalTitle.trim();
+    const prompt = proposalPrompt.trim();
+    const rubric = rubrics.find((item) => item.id === proposalRubricId);
+    if (title.length < 3) {
+      toast.error("Informe um título com pelo menos 3 caracteres.");
+      return;
+    }
+    if (prompt.length < 20) {
+      toast.error("Descreva a proposta em pelo menos 20 caracteres.");
+      return;
+    }
+    if (!rubric) {
+      toast.error("Nenhuma rubrica ativa está disponível.");
+      return;
+    }
+
+    setSavingProposal(true);
+    try {
+      const response = await fetch("/api/essays/assignments", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title,
+          prompt,
+          rubricId: rubric.id,
+          essayType: rubric.type,
+        }),
+      });
+      const result = await readApiResponse<{ id: string; title: string; prompt: string; essayType: string }>(response);
+      if (!result.data) throw new Error("A proposta não pôde ser criada.");
+      const item: EssayAssignmentItem = {
+        id: result.data.id,
+        title: result.data.title,
+        prompt: result.data.prompt,
+        type: result.data.essayType,
+        rubric: `${rubric.name} ${rubric.version}`,
+        maximumScore: rubric.maximumScore,
+      };
+      setAssignmentOptions((current) => [item, ...current.filter((assignmentItem) => assignmentItem.id !== item.id)]);
+      setAssignmentId(item.id);
+      setProposalTitle("");
+      setProposalPrompt("");
+      setCreatingProposal(false);
+      toast.success("Proposta criada");
+    } catch (error) {
+      toast.error("Falha ao criar proposta", {
+        description: error instanceof Error ? error.message : "Tente novamente.",
+      });
+    } finally {
+      setSavingProposal(false);
+    }
+  }
 
   useEffect(() => {
     if (!selectedId) return;
@@ -258,7 +328,38 @@ export function EssayWorkspace({
           </div>
         )}
         <section className="surface p-5 sm:p-6">
-          <h2 className="section-title">Nova redação</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="section-title">Nova redação</h2>
+            <button
+              type="button"
+              disabled={!rubrics.length}
+              onClick={() => setCreatingProposal((current) => !current)}
+              className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl border border-primary/40 px-3 text-xs font-bold text-primary transition hover:bg-blue-50 dark:hover:bg-blue-950/40 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Plus className="size-3.5" /> {creatingProposal ? "Cancelar" : "Nova proposta"}
+            </button>
+          </div>
+          {creatingProposal && (
+            <div className="mt-4 space-y-3 rounded-2xl border border-border bg-muted p-4">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold text-navy">Título da proposta</span>
+                <input value={proposalTitle} onChange={(event) => setProposalTitle(event.target.value)} maxLength={180} placeholder="Ex.: Desafios da educação digital" className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary" />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold text-navy">Tema ou enunciado</span>
+                <textarea value={proposalPrompt} onChange={(event) => setProposalPrompt(event.target.value)} maxLength={10_000} placeholder="Descreva o tema, o recorte e o que deve ser discutido..." className="min-h-24 w-full resize-none rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-primary" />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold text-navy">Rubrica de correção</span>
+                <select value={proposalRubricId} onChange={(event) => setProposalRubricId(event.target.value)} className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary">
+                  {rubrics.map((rubric) => <option key={rubric.id} value={rubric.id}>{rubric.name} · versão {rubric.version}</option>)}
+                </select>
+              </label>
+              <button type="button" disabled={savingProposal} onClick={() => void createProposal()} className="primary-button w-full disabled:cursor-not-allowed disabled:opacity-50">
+                <Plus className="size-4" /> {savingProposal ? "Criando..." : "Criar e selecionar proposta"}
+              </button>
+            </div>
+          )}
           <label className="mt-5 block">
             <span className="mb-2 block text-xs font-bold text-navy">
               Proposta
@@ -268,7 +369,8 @@ export function EssayWorkspace({
               onChange={(event) => setAssignmentId(event.target.value)}
               className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
             >
-              {assignments.map((item) => (
+              {!assignmentOptions.length && <option value="">Nenhuma proposta criada</option>}
+              {assignmentOptions.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.title}
                 </option>
@@ -295,7 +397,7 @@ export function EssayWorkspace({
                   setInputType(String(value));
                   setFiles([]);
                 }}
-                className={`flex min-h-16 items-center justify-center gap-2 rounded-xl border text-sm font-semibold [&>svg]:size-4 ${inputType === value ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-500"}`}
+                className={`flex min-h-16 items-center justify-center gap-2 rounded-xl border text-sm font-semibold [&>svg]:size-4 ${inputType === value ? "border-primary bg-secondary text-secondary-foreground" : "border-border text-muted-foreground"}`}
               >
                 {icon}
                 {label}

@@ -2,6 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { shadcn } from "@clerk/ui/themes";
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
+import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -14,19 +15,21 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="pt-BR" className={geist.variable} data-scroll-behavior="smooth">
-      <body suppressHydrationWarning>
-        <ClerkProvider
-          dynamic
-          telemetry={false}
-          appearance={{
-            theme: shadcn,
-            variables: { colorPrimary: "#2458ff", borderRadius: "0.85rem" },
-          }}
-        >
-          {children}
-        </ClerkProvider>
-        <Toaster position="top-right" richColors closeButton />
+    <html lang="pt-BR" className={geist.variable} data-scroll-behavior="smooth" suppressHydrationWarning>
+      <body>
+        <ThemeProvider>
+          <ClerkProvider
+            dynamic
+            telemetry={false}
+            appearance={{
+              theme: shadcn,
+              variables: { colorPrimary: "#2458ff", borderRadius: "0.85rem" },
+            }}
+          >
+            {children}
+          </ClerkProvider>
+          <Toaster position="top-right" richColors closeButton />
+        </ThemeProvider>
       </body>
     </html>
   );

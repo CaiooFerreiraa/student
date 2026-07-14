@@ -174,9 +174,9 @@ export function ChatWorkspace({
   ];
 
   return (
-    <div className="grid h-[calc(100dvh-8rem)] min-h-0 overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-[0_24px_70px_-42px_rgba(7,26,79,.45)] lg:grid-cols-[310px_minmax(0,1fr)]">
+    <div className="grid h-[calc(100dvh-8rem)] min-h-0 overflow-hidden rounded-[26px] border border-border bg-card shadow-[0_24px_70px_-42px_rgba(7,26,79,.45)] lg:grid-cols-[310px_minmax(0,1fr)]">
       <aside className={`${mobileListOpen ? "flex" : "hidden"} min-h-0 flex-col border-r border-slate-200 bg-slate-50/80 lg:flex`}>
-        <div className="shrink-0 border-b border-slate-200 bg-white p-4">
+        <div className="shrink-0 border-b border-border bg-card p-4">
           <div className="flex items-center gap-3">
             <span className="grid size-11 place-items-center rounded-2xl bg-[#0b246d] text-cyan-300">
               <MessageCircle className="size-5" />
@@ -202,7 +202,7 @@ export function ChatWorkspace({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar assunto..."
-              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+              className="h-11 w-full rounded-xl border border-border bg-muted pl-10 pr-3 text-sm text-foreground outline-none transition focus:border-primary focus:bg-card focus:ring-4 focus:ring-ring/10"
             />
           </label>
         </div>
@@ -216,9 +216,9 @@ export function ChatWorkspace({
                 key={conversation.id}
                 onClick={() => void selectConversation(conversation.id)}
                 disabled={sending || loadingConversation}
-                className={`mb-1 flex min-h-[76px] w-full cursor-pointer items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-wait ${active ? "bg-blue-100 text-blue-950" : "hover:bg-white"}`}
+                className={`mb-1 flex min-h-[76px] w-full cursor-pointer items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait ${active ? "bg-secondary text-secondary-foreground" : "hover:bg-card"}`}
               >
-                <span className={`grid size-11 shrink-0 place-items-center rounded-full ${active ? "bg-blue-600 text-white" : "bg-white text-blue-600 shadow-sm"}`}>
+                <span className={`grid size-11 shrink-0 place-items-center rounded-full ${active ? "bg-primary text-primary-foreground" : "bg-card text-primary shadow-sm"}`}>
                   <Bot className="size-5" />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -243,14 +243,14 @@ export function ChatWorkspace({
           )}
         </div>
 
-        <div className="shrink-0 space-y-2 border-t border-slate-200 bg-white p-4 text-[11px] text-slate-600">
+        <div className="shrink-0 space-y-2 border-t border-border bg-card p-4 text-[11px] text-muted-foreground">
           <p className="flex items-center gap-2"><Globe2 className="size-4 text-blue-600" /> Pesquisa na internet disponível</p>
           <p className="flex items-center gap-2"><Library className="size-4 text-emerald-600" /> {materials.length} materiais prontos</p>
         </div>
       </aside>
 
       <section className={`${mobileListOpen ? "hidden" : "flex"} min-h-0 min-w-0 flex-col lg:flex`}>
-        <header className="flex min-h-[72px] shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 sm:px-5">
+        <header className="flex min-h-[72px] shrink-0 items-center gap-3 border-b border-border bg-card px-4 sm:px-5">
           <button
             type="button"
             onClick={() => setMobileListOpen(true)}
@@ -279,7 +279,7 @@ export function ChatWorkspace({
 
         <div
           ref={messageViewport}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#f4f7fb] bg-[radial-gradient(circle_at_1px_1px,rgba(36,88,255,.07)_1px,transparent_0)] [background-size:22px_22px] p-4 sm:p-6"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-muted bg-[radial-gradient(circle_at_1px_1px,rgba(36,88,255,.09)_1px,transparent_0)] [background-size:22px_22px] p-4 sm:p-6"
         >
           {loadingConversation ? (
             <div className="grid h-full place-items-center text-sm text-slate-500">
@@ -297,7 +297,7 @@ export function ChatWorkspace({
                       type="button"
                       key={suggestion}
                       onClick={() => setInput(suggestion)}
-                      className="min-h-16 cursor-pointer rounded-2xl border border-blue-100 bg-white px-4 py-3 text-xs font-semibold leading-5 text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                      className="min-h-16 cursor-pointer rounded-2xl border border-border bg-card px-4 py-3 text-xs font-semibold leading-5 text-card-foreground shadow-sm transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       {suggestion}
                     </button>
@@ -319,7 +319,7 @@ export function ChatWorkspace({
               ) : (
                 <div key={message.id} className="flex max-w-[94%] items-end gap-2 sm:max-w-[82%]">
                   <Image src="/robozinho-student.png" alt="Lumina" width={32} height={32} className="size-8 shrink-0 rounded-full bg-cyan-100 object-cover object-top" />
-                  <div className="min-w-0 rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-slate-700 shadow-sm">
+                  <div className="min-w-0 rounded-2xl rounded-bl-md border border-border bg-card px-4 py-3 text-sm leading-7 text-card-foreground shadow-sm">
                     <MarkdownContent>{message.text}</MarkdownContent>
                     <time dateTime={message.createdAt} className="mt-1 block text-right text-[9px] text-slate-400">
                       {formatMessageTimestamp(message.createdAt)}
@@ -330,7 +330,7 @@ export function ChatWorkspace({
               {sending && (
                 <div className="flex items-end gap-2">
                   <Image src="/robozinho-student.png" alt="Lumina" width={32} height={32} className="size-8 rounded-full bg-cyan-100 object-cover object-top" />
-                  <div className="flex h-11 items-center gap-1 rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 shadow-sm">
+                  <div className="flex h-11 items-center gap-1 rounded-2xl rounded-bl-md border border-border bg-card px-4 shadow-sm">
                     {[0, 1, 2].map((index) => <span key={index} className="size-1.5 animate-bounce rounded-full bg-blue-400" style={{ animationDelay: `${index * 120}ms` }} />)}
                   </div>
                 </div>
@@ -339,9 +339,9 @@ export function ChatWorkspace({
           )}
         </div>
 
-        <div className="shrink-0 border-t border-slate-200 bg-white p-3 sm:p-4">
+        <div className="shrink-0 border-t border-border bg-card p-3 sm:p-4">
           {error && <div role="alert" className="mx-auto mb-2 max-w-4xl rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
-          <form onSubmit={(event) => void submit(event)} className="mx-auto flex max-w-4xl items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 transition focus-within:border-blue-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-500/10">
+          <form onSubmit={(event) => void submit(event)} className="mx-auto flex max-w-4xl items-end gap-2 rounded-2xl border border-border bg-muted p-2 transition focus-within:border-primary focus-within:bg-card focus-within:ring-4 focus-within:ring-ring/10">
             <textarea
               disabled={!aiEnabled || sending}
               value={input}

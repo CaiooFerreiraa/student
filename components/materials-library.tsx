@@ -227,7 +227,7 @@ export function MaterialsLibrary({
   return (
     <div className="space-y-5">
       <section className="grid gap-4 xl:grid-cols-[1.3fr_.7fr_.7fr]">
-        <div className="min-h-48 rounded-2xl border border-dashed border-blue-300 bg-blue-50/40 p-5 transition hover:border-blue-400">
+        <div className="min-h-48 rounded-2xl border border-dashed border-blue-300 bg-blue-50/40 p-5 transition hover:border-blue-400 dark:border-blue-800 dark:bg-blue-950/30 dark:hover:border-blue-600">
           <input
             ref={inputRef}
             type="file"
@@ -240,7 +240,7 @@ export function MaterialsLibrary({
             }}
           />
           <div className="flex items-center gap-3">
-            <span className="grid size-11 place-items-center rounded-xl bg-white text-blue-600 shadow-sm">
+            <span className="grid size-11 place-items-center rounded-xl bg-card text-primary shadow-sm">
               <BookOpen className="size-5" />
             </span>
             <div>
@@ -261,7 +261,7 @@ export function MaterialsLibrary({
               onChange={(event) => setSubjectName(event.target.value)}
               maxLength={100}
               placeholder="Ex.: Direito Constitucional"
-              className="h-11 w-full rounded-xl border border-blue-200 bg-white px-3 text-sm text-navy outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/10"
             />
           </label>
           <button
@@ -322,7 +322,7 @@ export function MaterialsLibrary({
                 <button
                   key={item.id}
                   onClick={() => setSelectedId(item.id)}
-                  className={`grid w-full cursor-pointer grid-cols-[40px_minmax(150px,1fr)_110px_110px] items-center gap-3 p-4 text-left text-xs transition hover:bg-slate-50 ${item.id === selectedId ? "bg-blue-50/60" : ""}`}
+                  className={`grid w-full cursor-pointer grid-cols-[40px_minmax(150px,1fr)_110px_110px] items-center gap-3 p-4 text-left text-xs transition hover:bg-muted ${item.id === selectedId ? "bg-blue-50 dark:bg-blue-950/50" : ""}`}
                 >
                   <span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600">
                     <File className="size-4" />

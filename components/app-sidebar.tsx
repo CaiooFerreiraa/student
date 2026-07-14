@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, BookOpen, Bot, ChevronRight, FilePlus2, GraduationCap, Home, Library, PenLine, Settings } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail } from "@/components/ui/sidebar";
+import { findActiveNavigationHref } from "@/domain/navigation/active-route";
 import { cn } from "@/lib/utils";
 
 const navigation = [
@@ -20,6 +21,7 @@ const navigation = [
 
 export function AppSidebar({ displayName }: { displayName: string }) {
   const pathname = usePathname();
+  const activeHref = findActiveNavigationHref(pathname, navigation.map((item) => item.href));
   return (
     <Sidebar collapsible="icon" className="z-30 border-0" style={{ "--sidebar-width": "17rem" } as React.CSSProperties}>
       <div className="relative flex h-full flex-col overflow-hidden bg-[linear-gradient(165deg,#071a4f_0%,#092a7a_58%,#1744bd_100%)] text-white">
@@ -33,7 +35,7 @@ export function AppSidebar({ displayName }: { displayName: string }) {
         <SidebarContent className="relative px-3">
           <SidebarMenu className="gap-1.5">
             {navigation.map((item) => {
-              const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+              const active = item.href === activeHref;
               return (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton

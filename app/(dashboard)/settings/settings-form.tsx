@@ -12,7 +12,10 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useTheme } from "next-themes";
 import { PageHeader } from "@/components/page-header";
+import { ThemePreference } from "@/domain/enums";
+import { toAppTheme } from "@/domain/settings/theme";
 import { readApiResponse } from "@/lib/api-client";
 
 type SettingsData = {
@@ -21,7 +24,7 @@ type SettingsData = {
   educationLevel: string;
   primaryGoal: string;
   weeklyStudyGoalMinutes: number;
-  theme: string;
+  theme: ThemePreference;
   reviewNotifications: boolean;
   weeklySummary: boolean;
   processingNotifications: boolean;
@@ -43,28 +46,53 @@ const defaults: SettingsData = {
 };
 
 export default function SettingsPage() {
+  const { setTheme } = useTheme();
   const [data, setData] = useState(defaults);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [themeReady, setThemeReady] = useState(false);
+
   useEffect(() => {
+    let active = true;
+
     void fetch("/api/settings")
       .then((response) => readApiResponse<SettingsData>(response))
       .then((result) => {
-        if (result.data) setData(result.data);
+        if (active && result.data) {
+          setData(result.data);
+          setThemeReady(true);
+        }
       })
-      .catch((error) =>
-        toast.error("Falha ao carregar configurações", {
-          description:
-            error instanceof Error ? error.message : "Tente novamente.",
-        }),
-      )
-      .finally(() => setLoading(false));
+      .catch((error) => {
+        if (active) {
+          toast.error("Falha ao carregar configurações", {
+            description:
+              error instanceof Error ? error.message : "Tente novamente.",
+          });
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
+
+  useEffect(() => {
+    if (themeReady) setTheme(toAppTheme(data.theme));
+  }, [data.theme, setTheme, themeReady]);
+
   function update<K extends keyof SettingsData>(
     key: K,
     value: SettingsData[K],
   ): void {
     setData((current) => ({ ...current, [key]: value }));
+  }
+  function updateTheme(value: ThemePreference): void {
+    update("theme", value);
+    setThemeReady(true);
   }
   async function save(): Promise<void> {
     setSaving(true);
@@ -122,7 +150,7 @@ export default function SettingsPage() {
                     onChange={(event) =>
                       update("displayName", event.target.value)
                     }
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
+                    className="h-11 w-full rounded-xl border border-input bg-muted px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
                   />
                 </Field>
                 <Field label="Escolaridade">
@@ -131,7 +159,7 @@ export default function SettingsPage() {
                     onChange={(event) =>
                       update("educationLevel", event.target.value)
                     }
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
+                    className="h-11 w-full rounded-xl border border-input bg-muted px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
                   >
                     <option value="ELEMENTARY">Ensino fundamental</option>
                     <option value="HIGH_SCHOOL">Ensino médio</option>
@@ -146,7 +174,7 @@ export default function SettingsPage() {
                     onChange={(event) =>
                       update("primaryGoal", event.target.value)
                     }
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
+                    className="h-11 w-full rounded-xl border border-input bg-muted px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
                   />
                 </Field>
                 <Field label="Meta semanal (minutos)">
@@ -159,7 +187,7 @@ export default function SettingsPage() {
                         Number(event.target.value),
                       )
                     }
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
+                    className="h-11 w-full rounded-xl border border-input bg-muted px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
                   />
                 </Field>
               </div>
@@ -167,22 +195,23 @@ export default function SettingsPage() {
                 <textarea
                   value={data.bio}
                   onChange={(event) => update("bio", event.target.value)}
-                  className="min-h-24 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm"
+                  className="min-h-24 w-full rounded-xl border border-input bg-muted p-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
                 />
               </Field>
             </section>
             <section className="surface p-5 sm:p-6">
               <h2 className="section-title">Aparência</h2>
               <div className="mt-4 grid grid-cols-3 gap-3">
-                {[
-                  ["LIGHT", "Claro"],
-                  ["DARK", "Escuro"],
-                  ["SYSTEM", "Sistema"],
-                ].map(([value, label]) => (
+                {([
+                  [ThemePreference.LIGHT, "Claro"],
+                  [ThemePreference.DARK, "Escuro"],
+                  [ThemePreference.SYSTEM, "Sistema"],
+                ] as const).map(([value, label]) => (
                   <button
+                    type="button"
                     key={value}
-                    onClick={() => update("theme", value)}
-                    className={`relative min-h-16 rounded-xl border text-sm font-semibold ${data.theme === value ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-500"}`}
+                    onClick={() => updateTheme(value)}
+                    className={`relative min-h-16 cursor-pointer rounded-xl border text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${data.theme === value ? "border-primary bg-secondary text-secondary-foreground" : "border-border text-muted-foreground hover:bg-muted"}`}
                   >
                     {label}
                     {data.theme === value && (
@@ -194,7 +223,7 @@ export default function SettingsPage() {
             </section>
             <section className="surface p-5 sm:p-6">
               <h2 className="section-title">Notificações e IA</h2>
-              <div className="mt-4 divide-y divide-slate-100">
+              <div className="mt-4 divide-y divide-border">
                 <Toggle
                   title="Lembretes de revisão"
                   value={data.reviewNotifications}
@@ -249,7 +278,7 @@ function Nav({
 }) {
   return (
     <div
-      className={`flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold [&>svg]:size-4 ${active ? "bg-blue-50 text-blue-700" : "text-slate-500"}`}
+      className={`flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold [&>svg]:size-4 ${active ? "bg-secondary text-secondary-foreground" : "text-muted-foreground"}`}
     >
       {icon}
       {label}

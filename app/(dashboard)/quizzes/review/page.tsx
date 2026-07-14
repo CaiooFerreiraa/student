@@ -115,7 +115,7 @@ export default async function QuizReviewPage({
           return (
             <article
               key={question.id}
-              className={`overflow-hidden rounded-2xl border bg-white shadow-sm ${unanswered ? "border-slate-200" : correct ? "border-emerald-200" : pending ? "border-blue-200" : "border-red-200"}`}
+              className={`overflow-hidden rounded-2xl border bg-card shadow-sm ${unanswered ? "border-border" : correct ? "border-emerald-200" : pending ? "border-blue-200" : "border-red-200"}`}
             >
               <header
                 className={`flex items-start gap-3 border-b p-5 ${unanswered ? "border-slate-100 bg-slate-50" : correct ? "border-emerald-100 bg-emerald-50/70" : pending ? "border-blue-100 bg-blue-50/70" : "border-red-100 bg-red-50/70"}`}
@@ -196,7 +196,7 @@ export default async function QuizReviewPage({
                                   {option.content}
                                 </p>
                                 {selected && (
-                                  <span className="rounded-full bg-white px-2 py-1 text-[9px] font-bold text-slate-600 shadow-sm">
+                                  <span className="rounded-full bg-card px-2 py-1 text-[9px] font-bold text-slate-600 shadow-sm">
                                     Sua resposta
                                   </span>
                                 )}

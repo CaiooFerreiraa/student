@@ -3,21 +3,12 @@ import { createAgent } from "langchain";
 import { ChatOpenAI } from "@langchain/openai";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { AiFeature, MessageRole, RunStatus } from "@/domain/enums";
+import { formatAssistantMessage } from "@/domain/chat/assistant-message";
 import { db } from "@/lib/server/db";
 import { aiRuns, conversationMessages, conversations } from "@/lib/server/db/schema";
 import { getAiEnv } from "@/lib/server/env";
 import { LUMINA_PROMPT_VERSION, LUMINA_SYSTEM_PROMPT } from "@/lib/server/ai/lumina-prompt";
 import { createLuminaTools } from "@/lib/server/ai/lumina-tools";
-
-function messageText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) return content.map((part) => {
-    if (typeof part === "string") return part;
-    if (part && typeof part === "object" && "text" in part && typeof part.text === "string") return part.text;
-    return "";
-  }).join("\n").trim();
-  return "";
-}
 
 export async function runLumina(userId: string, conversationId: string, userMessage: string) {
   const aiEnv = getAiEnv();
@@ -48,10 +39,15 @@ export async function runLumina(userId: string, conversationId: string, userMess
       messages: history.map((message) => ({ role: message.role === MessageRole.USER ? "user" as const : "assistant" as const, content: message.content })),
     });
     const finalMessage = result.messages.at(-1);
-    const text = messageText(finalMessage?.content);
-    if (!text) throw new Error("A Lumina não retornou uma resposta textual.");
+    const formatted = formatAssistantMessage(finalMessage?.content);
+    if (!formatted.text) throw new Error("A Lumina não retornou uma resposta textual.");
 
-    const [stored] = await db.insert(conversationMessages).values({ conversationId, role: MessageRole.ASSISTANT, content: text }).returning();
+    const [stored] = await db.insert(conversationMessages).values({
+      conversationId,
+      role: MessageRole.ASSISTANT,
+      content: formatted.text,
+      structuredData: formatted.citations.length ? { citations: formatted.citations } : null,
+    }).returning();
     if (!stored) throw new Error("Não foi possível salvar a resposta.");
     const completedAt = new Date();
     await db.transaction(async (transaction) => {

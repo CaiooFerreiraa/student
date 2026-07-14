@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, BookOpen, Bot, ChevronRight, FilePlus2, GraduationCap, Home, Library, PenLine, Settings, Sparkles } from "lucide-react";
+import { BarChart3, BookOpen, Bot, ChevronRight, FilePlus2, GraduationCap, Home, Library, PenLine, Settings } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
@@ -50,11 +50,6 @@ export function AppSidebar({ displayName }: { displayName: string }) {
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter className="relative gap-4 p-4 group-data-[collapsible=icon]:p-2">
-          <div className="overflow-hidden rounded-2xl border border-white/15 bg-white/10 p-4 shadow-xl shadow-blue-950/20 backdrop-blur group-data-[collapsible=icon]:hidden">
-            <div className="mb-3 flex items-center gap-2 text-sm font-bold"><Sparkles className="size-4 text-cyan-300" /> Lumina Pro</div>
-            <p className="mb-4 text-xs leading-relaxed text-blue-100">Mais materiais, quizzes ilimitados e tutoria com IA.</p>
-            <Link href="/settings" className="flex h-10 items-center justify-center rounded-xl bg-white text-sm font-bold text-blue-700 transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">Conhecer planos</Link>
-          </div>
           <Link href="/profile" className="flex items-center gap-3 rounded-2xl border border-white/10 bg-blue-950/20 p-2.5 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0">
             <Image src="/robozinho-student.png" alt="Avatar" width={42} height={42} className="size-10 shrink-0 rounded-full bg-cyan-100 object-cover object-top" />
             <span className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden"><strong className="block truncate text-sm">{displayName}</strong><small className="text-blue-200">Ver perfil</small></span>

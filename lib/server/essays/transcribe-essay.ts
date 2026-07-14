@@ -1,6 +1,5 @@
 import "server-only";
 import { get } from "@vercel/blob";
-import { DocxLoader } from "@langchain/community/document_loaders/fs/docx";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { asc, desc, eq } from "drizzle-orm";
@@ -8,6 +7,7 @@ import { z } from "zod";
 import { AiFeature, EssayInputType, EssaySubmissionStatus, RunStatus } from "@/domain/enums";
 import { db } from "@/lib/server/db";
 import { aiRuns, essaySubmissionFiles, essaySubmissions, essayTranscriptions } from "@/lib/server/db/schema";
+import { extractDocxText } from "@/lib/server/documents/extract-docx-text";
 import { getAiEnv, getBlobEnv } from "@/lib/server/env";
 
 const transcriptionSchema = z.object({
@@ -50,8 +50,7 @@ export async function transcribeEssaySubmission(userId: string, submissionId: st
 
   if (submission.inputType === EssayInputType.DOCX) {
     const source = await privateBlob(files[0]!.fileAsset.pathname);
-    const documents = await new DocxLoader(new Blob([source.bytes], { type: source.contentType }), { type: "docx" }).load();
-    const text = documents.map((document) => document.pageContent).join("\n\n").trim();
+    const text = (await extractDocxText(source.bytes)).trim();
     if (!text) throw new Error("Não foi possível extrair texto do DOCX.");
     await db.transaction(async (transaction) => {
       await transaction.insert(essayTranscriptions).values({ submissionId, versionNumber: latestVersion + 1, rawText: text, normalizedText: text, confidence: "1.0000" });

@@ -1,6 +1,6 @@
 import "server-only";
 import { tool } from "@langchain/core/tools";
-import { OpenAIEmbeddings } from "@langchain/openai";
+import { OpenAIEmbeddings, tools as openAiTools } from "@langchain/openai";
 import { and, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { DifficultyLevel, EducationLevel, GenerationMode, QuizMode } from "@/domain/enums";
@@ -66,5 +66,15 @@ export function createLuminaTools(userId: string) {
     },
   );
 
-  return [listMaterials, searchMaterials, createQuizDraft];
+  const webSearch = openAiTools.webSearch({
+    search_context_size: "medium",
+    userLocation: {
+      type: "approximate",
+      country: "BR",
+      region: "Bahia",
+      timezone: "America/Bahia",
+    },
+  });
+
+  return [listMaterials, searchMaterials, createQuizDraft, webSearch];
 }

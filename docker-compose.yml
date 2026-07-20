@@ -1,7 +1,7 @@
 services:
   app:
     image: oven/bun:1
-    container_name: student-app
+    container_name: student
     restart: unless-stopped
     working_dir: /app
     expose:

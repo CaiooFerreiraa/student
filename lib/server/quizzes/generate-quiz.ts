@@ -1,6 +1,6 @@
 import "server-only";
 import { ChatOpenAI } from "@langchain/openai";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   createGeneratedQuizSchema,
@@ -8,13 +8,17 @@ import {
   type GeneratedQuestion,
 } from "@/domain/quiz/generated-quiz";
 import { assertGeneratedQuestionsAreOriginal } from "@/domain/quiz/generated-quiz-quality";
+import { generateReviewedQuiz } from "@/domain/quiz/review-workflow";
+import { shuffleCorrectOptions } from "@/domain/quiz/shuffle-options";
 import { AiFeature, RunStatus } from "@/domain/enums";
 import { db } from "@/lib/server/db";
-import { aiRuns, materialChunks, materials, quizzes, quizVersionMaterials, quizVersions, subjects } from "@/lib/server/db/schema";
+import { aiRuns, quizzes, quizVersions, subjects } from "@/lib/server/db/schema";
 import { getAiEnv } from "@/lib/server/env";
 import { persistGeneratedQuiz } from "@/lib/server/quizzes/persist-generated-quiz";
+import { retrieveQuizMaterialChunks } from "@/lib/server/quizzes/quiz-material-context";
+import { reviewGeneratedQuestions } from "@/lib/server/quizzes/review-generated-quiz";
 
-export const QUIZ_GENERATION_PROMPT_VERSION = "quiz-generation-v5";
+export const QUIZ_GENERATION_PROMPT_VERSION = "quiz-generation-v7-reviewed";
 
 type Distribution = { multipleChoice: number; trueFalse: number; open: number };
 
@@ -73,29 +77,6 @@ export async function generateQuizVersion(
   const [version] = quiz ? await db.select().from(quizVersions).where(eq(quizVersions.quizId, quiz.id)).orderBy(desc(quizVersions.versionNumber)).limit(1) : [];
   if (!quiz || !version) throw new Error("Quiz não encontrado.");
   const expected = distribution(version.questionDistribution);
-  const versionMaterialRows = await db.select({ materialId: quizVersionMaterials.materialId }).from(quizVersionMaterials).where(eq(quizVersionMaterials.quizVersionId, version.id));
-  const materialIds = versionMaterialRows.map((entry) => entry.materialId);
-  if (materialIds.length === 0)
-    throw new Error("Selecione ao menos um material para gerar o quiz.");
-
-  const chunks = await db.select({ id: materialChunks.id, materialId: materialChunks.materialId, content: materialChunks.content, pageStart: materialChunks.pageStart, pageEnd: materialChunks.pageEnd, materialTitle: materials.title })
-    .from(materialChunks).innerJoin(materials, eq(materialChunks.materialId, materials.id)).where(inArray(materialChunks.materialId, materialIds))
-    .orderBy(asc(materialChunks.materialId), asc(materialChunks.position)).limit(120);
-  let usedCharacters = 0;
-  const sourceMap = new Map<string, (typeof chunks)[number]>();
-  const contextParts: string[] = [];
-  for (const chunk of chunks) {
-    if (usedCharacters + chunk.content.length > 80_000) break;
-    const key = `SOURCE_${sourceMap.size + 1}`;
-    sourceMap.set(key, chunk);
-    contextParts.push(
-      `[${key}] Material: ${chunk.materialTitle}; página: ${chunk.pageStart ?? "não informada"}\n${chunk.content}`,
-    );
-    usedCharacters += chunk.content.length;
-  }
-  if (!contextParts.length)
-    throw new Error("Os materiais ainda não possuem texto processado.");
-
   const aiEnv = getAiEnv();
   const [run] = await db.insert(aiRuns).values({
       userId,
@@ -113,13 +94,35 @@ export async function generateQuizVersion(
   });
 
   try {
+    const chunks = await retrieveQuizMaterialChunks({
+      userId,
+      quizVersionId: version.id,
+      query: [quiz.title, quiz.description, quizRow?.subject?.name].filter(Boolean).join(". "),
+      perMaterialLimit: 6,
+    });
+    let usedCharacters = 0;
+    const sourceMap = new Map<string, (typeof chunks)[number]>();
+    const contextParts: string[] = [];
+    for (const chunk of chunks) {
+      if (usedCharacters + chunk.content.length > 80_000) continue;
+      const key = `SOURCE_${sourceMap.size + 1}`;
+      sourceMap.set(key, chunk);
+      contextParts.push(
+        `[${key}] Material: ${chunk.materialTitle}; página: ${chunk.pageStart ?? "não informada"}\n${chunk.content}`,
+      );
+      usedCharacters += chunk.content.length;
+    }
+    if (!contextParts.length) throw new Error("Os materiais ainda não possuem texto processado.");
+
     const model = new ChatOpenAI({
       apiKey: aiEnv.OPENAI_API_KEY,
       model: aiEnv.OPENAI_CHAT_MODEL,
     });
-    const questions = await generateStructuredQuestions(
-      model,
-      `Gere um quiz usando exclusivamente as fontes fornecidas. Não invente fatos. Cada questão deve citar ao menos uma SOURCE válida.
+    const approved = await generateReviewedQuiz({
+      requested: expected,
+      generate: (remaining, accepted, rejectionReasons) => generateStructuredQuestions(
+          model,
+          `Gere questões usando exclusivamente as fontes fornecidas. Não invente fatos. Cada questão deve citar ao menos uma SOURCE válida.
 
 FLUXO OBRIGATÓRIO DE GERAÇÃO — execute internamente nesta ordem:
 
@@ -153,9 +156,11 @@ Para cada questão, confirme internamente:
 Se qualquer item falhar, reescreva a questão antes de retornar.
 
 CONTRATO DE SAÍDA:
-- Retorne multipleChoice com EXATAMENTE ${expected.multipleChoice} itens, trueFalse com EXATAMENTE ${expected.trueFalse} itens e open com EXATAMENTE ${expected.open} itens.
+- Retorne multipleChoice com EXATAMENTE ${remaining.multipleChoice} itens, trueFalse com EXATAMENTE ${remaining.trueFalse} itens e open com EXATAMENTE ${remaining.open} itens.
 - Não mova questões entre arrays.
 - Use null somente nos campos que não se aplicam ao tipo de questão. Explicações das alternativas de múltipla escolha nunca são null.
+- Não repita estas questões já aprovadas: ${JSON.stringify(accepted.map((question) => question.statement))}.
+- Corrija estes problemas encontrados na rodada anterior: ${JSON.stringify(rejectionReasons)}.
 
 Título: ${quiz.title}
 Descrição: ${quiz.description ?? ""}
@@ -165,9 +170,12 @@ Dificuldade: ${version.difficulty}
 
 FONTES:
 ${contextParts.join("\n\n")}`,
-      expected,
-      [...sourceMap.values()].map((chunk) => chunk.content),
-    );
+          remaining,
+          [...sourceMap.values()].map((chunk) => chunk.content),
+        ),
+      review: (candidates, accepted) => reviewGeneratedQuestions({ model, questions: candidates, approvedQuestions: accepted, sources: sourceMap }),
+    });
+    const questions = shuffleCorrectOptions(approved);
 
     await persistGeneratedQuiz({
       quizId: quiz.id,

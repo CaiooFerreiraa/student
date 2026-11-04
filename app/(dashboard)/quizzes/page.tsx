@@ -82,6 +82,13 @@ export default async function QuizzesPage() {
               quiz.status === "GENERATING" ||
               latestVersion?.status === "GENERATING";
             const failed = latestVersion?.status === "FAILED";
+            const actualQuestions = quiz.quizVersion?.questions ?? [];
+            const partial = ready && actualQuestions.length < (quiz.quizVersion?.requestedQuestionCount ?? 0);
+            const actualTypes = {
+              multipleChoice: actualQuestions.filter((question) => question.type === "MULTIPLE_CHOICE").length,
+              trueFalse: actualQuestions.filter((question) => question.type === "TRUE_FALSE").length,
+              open: actualQuestions.filter((question) => question.type === "OPEN").length,
+            };
             return (
               <article
                 key={quiz.id}
@@ -95,7 +102,7 @@ export default async function QuizzesPage() {
                     className={`rounded-full px-2 py-1 text-[10px] font-bold ${ready ? "bg-emerald-50 text-emerald-700" : generating ? "bg-orange-50 text-orange-700" : failed ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-600"}`}
                   >
                     {ready
-                      ? "Pronto"
+                      ? partial ? "Parcial" : "Pronto"
                       : generating
                         ? "Gerando"
                         : failed
@@ -114,10 +121,8 @@ export default async function QuizzesPage() {
                 <div className="mt-5 flex items-center gap-4 border-t border-slate-100 pt-4 text-[11px] text-slate-500">
                   <span className="flex items-center gap-1">
                     <BookOpen className="size-3.5" />
-                    {ready
-                      ? quiz.quizVersion?.questions.length
-                      : (latestVersion?.requestedQuestionCount ?? 0)}{" "}
-                    questões
+                    {ready ? actualQuestions.length : (latestVersion?.requestedQuestionCount ?? 0)}{" "}
+                    questões{partial ? ` de ${quiz.quizVersion?.requestedQuestionCount} solicitadas` : ""}
                   </span>
                   <span className="flex items-center gap-1">
                     <Clock3 className="size-3.5" />v
@@ -129,6 +134,11 @@ export default async function QuizzesPage() {
                     </strong>
                   )}
                 </div>
+                {partial && (
+                  <p className="mt-2 text-[11px] text-amber-700">
+                    Quiz parcial após revisão: {actualTypes.multipleChoice} múltipla escolha, {actualTypes.trueFalse} verdadeiro/falso e {actualTypes.open} abertas.
+                  </p>
+                )}
                 <div className="mt-4 flex gap-2">
                   <QuizCardActions
                     key={`${quiz.status}-${latestVersion?.status}-${quiz.quizVersion?.questions.length ?? 0}`}

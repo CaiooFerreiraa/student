@@ -6,15 +6,16 @@ import { AiFeature, RunStatus } from "@/domain/enums";
 import { db } from "@/lib/server/db";
 import { aiRuns, attemptAnswers, questions, quizAttempts } from "@/lib/server/db/schema";
 import { getAiEnv } from "@/lib/server/env";
+import { retrieveQuestionGradingEvidence } from "@/lib/server/quizzes/quiz-material-context";
 
 const schema = z.object({ pointsAwarded: z.number().nonnegative(), feedback: z.string().min(5) });
-export const OPEN_ANSWER_PROMPT_VERSION = "open-answer-grading-v1";
+export const OPEN_ANSWER_PROMPT_VERSION = "open-answer-grading-v2-rag";
 
 export async function gradeOpenAnswers(userId: string, attemptId: string): Promise<void> {
   const [attempt] = await db.select().from(quizAttempts).where(and(eq(quizAttempts.id, attemptId), eq(quizAttempts.userId, userId))).limit(1);
   if (!attempt) return;
   const pendingAnswers = await db.select({ answer: attemptAnswers, question: questions }).from(attemptAnswers).innerJoin(questions, eq(attemptAnswers.questionId, questions.id))
-    .where(and(eq(attemptAnswers.attemptId, attemptId), eq(attemptAnswers.gradingStatus, "PENDING")));
+    .where(and(eq(attemptAnswers.attemptId, attemptId), eq(attemptAnswers.gradingStatus, "PENDING"), eq(questions.quizVersionId, attempt.quizVersionId)));
   if (!pendingAnswers.length) return;
   const env = getAiEnv();
   const [run] = await db.insert(aiRuns).values({ userId, feature: AiFeature.OPEN_ANSWER_GRADING, targetType: "QuizAttempt", targetId: attemptId, status: RunStatus.RUNNING, model: env.OPENAI_CHAT_MODEL, promptVersion: OPEN_ANSWER_PROMPT_VERSION }).returning();
@@ -22,7 +23,19 @@ export async function gradeOpenAnswers(userId: string, attemptId: string): Promi
   try {
     const grader = new ChatOpenAI({ apiKey: env.OPENAI_API_KEY, model: env.OPENAI_CHAT_MODEL }).withStructuredOutput(schema, { name: "open_answer_grade" });
     for (const { answer, question } of pendingAnswers) {
-      const result = await grader.invoke(`Avalie a resposta usando estritamente a rubrica. Não exija palavras idênticas à resposta-modelo.\n\nQuestão: ${question.statement}\nResposta-modelo: ${question.modelAnswer ?? ""}\nRubrica: ${JSON.stringify(question.gradingRubric ?? {})}\nMáximo: ${question.points}\nResposta do estudante: ${answer.textAnswer ?? ""}`);
+      const evidence = await retrieveQuestionGradingEvidence({
+        userId,
+        quizVersionId: attempt.quizVersionId,
+        questionId: question.id,
+        query: `${question.statement}\n${question.modelAnswer ?? ""}`,
+      });
+      const sourceContext = evidence.sources.map((chunk, index) =>
+        `[FONTE_${index + 1}] ${chunk.materialTitle}; página: ${chunk.pageStart ?? "não informada"}\n${chunk.content}`,
+      ).join("\n\n");
+      const sourceInstruction = evidence.origin === "question_sources"
+        ? "Os trechos abaixo são as fontes registradas na geração desta questão e têm prioridade para interpretar a resposta-modelo e a rubrica. Não use outros documentos para contradizê-los."
+        : "Não há fontes registradas para esta questão; os trechos abaixo foram recuperados dos materiais vinculados à versão do quiz.";
+      const result = await grader.invoke(`Avalie a resposta usando estritamente a rubrica e as fontes da questão. ${sourceInstruction} Não exija palavras idênticas à resposta-modelo. Não invente fatos nem critérios que não estejam sustentados pelos trechos ou pela rubrica. Se a resposta-modelo conflitar com as fontes, não penalize o estudante por seguir as fontes. Explique a pontuação no feedback e indique o material e a página quando usar um trecho.\n\nQuestão: ${question.statement}\nResposta-modelo: ${question.modelAnswer ?? ""}\nRubrica: ${JSON.stringify(question.gradingRubric ?? {})}\nMáximo: ${question.points}\n\nFONTES DA QUESTÃO:\n${sourceContext}\n\nResposta do estudante: ${answer.textAnswer ?? ""}`);
       const points = Math.min(question.points, result.pointsAwarded);
       await db.update(attemptAnswers).set({ gradingStatus: "GRADED", gradedBy: "AI", gradingModel: env.OPENAI_CHAT_MODEL, gradingPromptVersion: OPEN_ANSWER_PROMPT_VERSION, pointsAwarded: points.toFixed(2), feedback: result.feedback, gradedAt: new Date() }).where(eq(attemptAnswers.id, answer.id));
     }

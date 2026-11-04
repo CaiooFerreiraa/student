@@ -6,6 +6,7 @@ mock.module("server-only", () => ({}));
 
 let getCurrentUser: typeof import("@/lib/server/current-user").getCurrentUser;
 let persistGeneratedQuiz: typeof import("@/lib/server/quizzes/persist-generated-quiz").persistGeneratedQuiz;
+let retrieveQuestionGradingEvidence: typeof import("@/lib/server/quizzes/quiz-material-context").retrieveQuestionGradingEvidence;
 let getAttemptReview: typeof import("@/lib/server/quizzes/attempt-history").getAttemptReview;
 let listAttemptHistory: typeof import("@/lib/server/quizzes/attempt-history").listAttemptHistory;
 let db: typeof import("@/lib/server/db").db;
@@ -14,6 +15,7 @@ let tables: typeof import("@/lib/server/db/schema");
 beforeAll(async () => {
   ({ getCurrentUser } = await import("@/lib/server/current-user"));
   ({ persistGeneratedQuiz } = await import("@/lib/server/quizzes/persist-generated-quiz"));
+  ({ retrieveQuestionGradingEvidence } = await import("@/lib/server/quizzes/quiz-material-context"));
   ({ getAttemptReview, listAttemptHistory } = await import("@/lib/server/quizzes/attempt-history"));
   ({ db } = await import("@/lib/server/db"));
   tables = await import("@/lib/server/db/schema");
@@ -27,13 +29,15 @@ describe("persistência do quiz gerado", () => {
     if (!file) throw new Error("Fixture de arquivo não criada.");
     const [material] = await db.insert(tables.materials).values({ ownerId: user.id, fileId: file.id, title: "Fonte do quiz", type: "TEXT", processingStatus: "READY", updatedAt: new Date() }).returning();
     if (!material) throw new Error("Fixture de material não criada.");
-    const [chunk] = await db.insert(tables.materialChunks).values({ materialId: material.id, position: 0, content: "Conteúdo confiável para fundamentar a questão.", contentHash: nonce, pageStart: 1, pageEnd: 1 }).returning();
+    const [chunk] = await db.insert(tables.materialChunks).values({ materialId: material.id, position: 0, content: "A menor pressão externa reduz a temperatura de ebulição da água.", contentHash: nonce, pageStart: 1, pageEnd: 1 }).returning();
     const [quiz] = await db.insert(tables.quizzes).values({ ownerId: user.id, title: "Quiz de integração", status: "GENERATING", updatedAt: new Date() }).returning();
     if (!chunk || !quiz) throw new Error("Fixtures do quiz não criadas.");
     const [version] = await db.insert(tables.quizVersions).values({ quizId: quiz.id, versionNumber: 1, status: "GENERATING", educationLevel: "UNDERGRADUATE", difficulty: "MEDIUM", mode: "STUDY", generationMode: "AI", requestedQuestionCount: 1, questionDistribution: { multipleChoice: 1, trueFalse: 0, open: 0 } }).returning();
     if (!version) throw new Error("Fixture de versão não criada.");
     const [aiRun] = await db.insert(tables.aiRuns).values({ userId: user.id, feature: "QUIZ_GENERATION", targetType: "QuizVersion", targetId: version.id, status: "RUNNING", model: "integration", promptVersion: "integration" }).returning();
     if (!aiRun) throw new Error("Fixture de execução não criada.");
+    let conflictingFileId: string | null = null;
+    let conflictingMaterialId: string | null = null;
 
     try {
       await persistGeneratedQuiz({
@@ -53,6 +57,18 @@ describe("persistência do quiz gerado", () => {
       expect(runStatus).toEqual({ status: "SUCCEEDED" });
 
       const question = persisted!.quizVersion!.questions[0]!;
+      const [conflictingFile] = await db.insert(tables.fileAssets).values({ ownerId: user.id, purpose: "MATERIAL", status: "AVAILABLE", pathname: `users/${user.id}/materials/conflict-${nonce}.txt`, url: `https://example.com/conflict-${nonce}.txt`, originalName: "conflict.txt", contentType: "text/plain", byteSize: 256 }).returning();
+      if (!conflictingFile) throw new Error("Arquivo conflitante não criado.");
+      conflictingFileId = conflictingFile.id;
+      const [conflictingMaterial] = await db.insert(tables.materials).values({ ownerId: user.id, fileId: conflictingFile.id, title: "Fonte conflitante", type: "TEXT", processingStatus: "READY", updatedAt: new Date() }).returning();
+      if (!conflictingMaterial) throw new Error("Material conflitante não criado.");
+      conflictingMaterialId = conflictingMaterial.id;
+      await db.insert(tables.materialChunks).values({ materialId: conflictingMaterial.id, position: 0, content: "A menor pressão externa aumenta a temperatura de ebulição.", contentHash: `${nonce}-conflict`, pageStart: 2, pageEnd: 2 });
+      await db.insert(tables.quizVersionMaterials).values([{ quizVersionId: version.id, materialId: material.id }, { quizVersionId: version.id, materialId: conflictingMaterial.id }]);
+      const gradingEvidence = await retrieveQuestionGradingEvidence({ userId: user.id, quizVersionId: version.id, questionId: question.id, query: question.statement });
+      expect(gradingEvidence.origin).toBe("question_sources");
+      expect(gradingEvidence.sources.map((source) => source.materialTitle)).toEqual(["Fonte do quiz"]);
+      expect(gradingEvidence.sources[0]?.content).toBe(chunk.content);
       const wrongOption = question.questionOptions.find((option) => !option.isCorrect)!;
       const [attempt] = await db.insert(tables.quizAttempts).values({ userId: user.id, quizId: quiz.id, quizVersionId: version.id, status: "SUBMITTED", submittedAt: new Date(), score: "0", maximumScore: "5", percentage: "0", incorrectCount: 1 }).returning();
       if (!attempt) throw new Error("Fixture de tentativa não criada.");
@@ -69,6 +85,8 @@ describe("persistência do quiz gerado", () => {
       await db.delete(tables.quizAttempts).where(eq(tables.quizAttempts.quizId, quiz.id));
       await db.delete(tables.quizzes).where(eq(tables.quizzes.id, quiz.id));
       await db.delete(tables.aiRuns).where(eq(tables.aiRuns.id, aiRun.id));
+      if (conflictingMaterialId) await db.delete(tables.materials).where(eq(tables.materials.id, conflictingMaterialId));
+      if (conflictingFileId) await db.delete(tables.fileAssets).where(eq(tables.fileAssets.id, conflictingFileId));
       await db.delete(tables.materials).where(eq(tables.materials.id, material.id));
       await db.delete(tables.fileAssets).where(eq(tables.fileAssets.id, file.id));
     }

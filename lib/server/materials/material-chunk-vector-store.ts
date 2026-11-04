@@ -1,11 +1,11 @@
 import "server-only";
-import { and, cosineDistance, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, cosineDistance, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/server/db";
 import { materialChunks, materials } from "@/lib/server/db/schema";
 
 const EMBEDDING_DIMENSIONS = 1_536;
 const EMBEDDING_UPDATE_BATCH_SIZE = 100;
-export type MaterialChunkSemanticMatch = { materialId: string; materialTitle: string; content: string; pageStart: number | null; pageEnd: number | null; similarity: number };
+export type MaterialChunkSemanticMatch = { id: string; materialId: string; materialTitle: string; content: string; pageStart: number | null; pageEnd: number | null; similarity: number };
 type ChunkEmbedding = { id: string; embedding: number[] };
 
 function batches<T>(items: T[], size: number): T[][] {
@@ -21,9 +21,11 @@ function validateEmbedding(embedding: number[]): number[] {
   return embedding;
 }
 
-export async function searchMaterialChunksBySimilarity(input: { ownerId: string; embedding: number[]; limit: number }): Promise<MaterialChunkSemanticMatch[]> {
+export async function searchMaterialChunksBySimilarity(input: { ownerId: string; embedding: number[]; limit: number; materialIds?: string[] }): Promise<MaterialChunkSemanticMatch[]> {
+  if (input.materialIds?.length === 0) return [];
   const distance = cosineDistance(materialChunks.embedding, validateEmbedding(input.embedding));
   const rows = await db.select({
+    id: materialChunks.id,
     materialId: materials.id,
     materialTitle: materials.title,
     content: materialChunks.content,
@@ -31,7 +33,13 @@ export async function searchMaterialChunksBySimilarity(input: { ownerId: string;
     pageEnd: materialChunks.pageEnd,
     similarity: sql<number>`1 - (${distance})`,
   }).from(materialChunks).innerJoin(materials, eq(materialChunks.materialId, materials.id))
-    .where(and(eq(materials.ownerId, input.ownerId), isNotNull(materialChunks.embedding), isNotNull(materials.processedAt)))
+    .where(and(
+      eq(materials.ownerId, input.ownerId),
+      isNull(materials.deletedAt),
+      isNotNull(materialChunks.embedding),
+      isNotNull(materials.processedAt),
+      input.materialIds ? inArray(materials.id, input.materialIds) : undefined,
+    ))
     .orderBy(desc(sql`1 - (${distance})`)).limit(input.limit);
   return rows.map((row) => ({ ...row, similarity: Number(row.similarity) }));
 }

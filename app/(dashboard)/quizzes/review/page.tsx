@@ -206,13 +206,6 @@ export default async function QuizReviewPage({
                                   </span>
                                 )}
                               </div>
-                              {option.explanation && (
-                                <p
-                                  className={`mt-2 text-xs leading-relaxed ${option.isCorrect ? "text-emerald-800" : selected ? "text-red-700" : "text-slate-500"}`}
-                                >
-                                  {option.explanation}
-                                </p>
-                              )}
                             </div>
                           </div>
                         </div>
@@ -269,34 +262,26 @@ export default async function QuizReviewPage({
                   </div>
                 )}
 
-                {question.explanation && (
+                {(question.explanation || question.options.some((option) => option.explanation) || question.sources.length > 0) && (
                   <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                     <div className="flex items-center gap-2 text-blue-800">
                       <Lightbulb className="size-4" />
-                      <strong className="text-xs">
-                        Por que essa é a resposta correta?
-                      </strong>
+                      <strong className="text-sm">Resolução</strong>
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">
-                      {question.explanation}
-                    </p>
-                  </div>
-                )}
-
-                {question.sources.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
-                    <span className="mr-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      <FileText className="size-3.5" /> Fontes
-                    </span>
-                    {question.sources.map((source) => (
-                      <span
-                        key={source.id}
-                        className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600"
-                      >
-                        {source.chunk.material.title}
-                        {source.pageStart ? ` · p. ${source.pageStart}` : ""}
-                      </span>
+                    {question.explanation && <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{question.explanation}</p>}
+                    {question.options.filter((option) => option.explanation).map((option) => (
+                      <p key={option.id} className="mt-2 text-sm leading-6 text-slate-700"><strong>Alternativa {option.position}:</strong> {option.explanation}</p>
                     ))}
+                    {question.sources.length > 0 && (
+                      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-blue-100 pt-4">
+                        <span className="mr-1 flex items-center gap-1 text-xs font-bold text-blue-800"><FileText className="size-3.5" /> Fontes</span>
+                        {question.sources.map((source) => (
+                          <span key={source.id} className="rounded-lg bg-white px-2.5 py-1.5 text-xs text-slate-600">
+                            {source.chunk.material.title}{source.pageStart ? ` · p. ${source.pageStart}` : ""}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

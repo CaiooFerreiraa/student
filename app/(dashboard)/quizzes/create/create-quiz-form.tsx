@@ -68,7 +68,7 @@ export default function CreateQuizPage() {
     if (!selectedMaterials.length) { setError("Selecione pelo menos um material pronto."); return; }
     setSubmitting(true);
     try {
-      const createResponse = await fetch("/api/quizzes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, description: description || undefined, subjectId: subjectId || undefined, educationLevel, difficulty, mode: "STUDY", generationMode: "AI", answerRevealMode: "AFTER_SUBMIT", questionDistribution: distribution, timePerQuestionSeconds: 90, materialIds: selectedMaterials }) });
+      const createResponse = await fetch("/api/quizzes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, description: description || undefined, subjectId: subjectId || undefined, educationLevel, difficulty, mode: "STUDY", generationMode: "AI", answerRevealMode: "AFTER_QUESTION", questionDistribution: distribution, timePerQuestionSeconds: 90, materialIds: selectedMaterials }) });
       const createResult = await readApiResponse<{ id: string }>(createResponse);
       if (!createResult.data) throw new Error("Não foi possível criar o quiz.");
       const generateResponse = await fetch(`/api/quizzes/${createResult.data.id}/generate`, { method: "POST" });

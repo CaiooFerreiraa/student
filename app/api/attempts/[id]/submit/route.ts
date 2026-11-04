@@ -31,7 +31,7 @@ export const POST = withApiErrorBoundary(async (_request: Request, context: Rout
     if (question.type === "OPEN") continue;
     const isCorrect = question.type === "MULTIPLE_CHOICE" ? Boolean(answer.questionOption?.isCorrect) : answer.booleanAnswer === question.correctBoolean;
     if (isCorrect) { score += question.points; correctCount++; } else incorrectCount++;
-    gradedAnswers.push({ id: answer.id, isCorrect, points: isCorrect ? question.points : 0 });
+    if (answer.gradingStatus !== "GRADED") gradedAnswers.push({ id: answer.id, isCorrect, points: isCorrect ? question.points : 0 });
   }
   const submittedAt = new Date();
   const durationSeconds = Math.max(0, Math.floor((submittedAt.getTime() - attempt.startedAt.getTime()) / 1000));

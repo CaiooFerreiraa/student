@@ -239,7 +239,7 @@ export const quizVersions = pgTable("quiz_versions", {
 	difficulty: difficultyLevel().notNull(),
 	mode: quizMode().default('STUDY').notNull(),
 	generationMode: generationMode().default('AI').notNull(),
-	answerRevealMode: answerRevealMode().default('AFTER_SUBMIT').notNull(),
+	answerRevealMode: answerRevealMode().default('AFTER_QUESTION').notNull(),
 	requestedQuestionCount: integer().notNull(),
 	timeLimitSeconds: integer(),
 	timePerQuestionSeconds: integer(),

@@ -15,6 +15,13 @@
       "when": 1783820537909,
       "tag": "0001_remove-prisma-metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793804491579,
+      "tag": "0002_icy_otto_octavius",
+      "breakpoints": true
     }
   ]
 }

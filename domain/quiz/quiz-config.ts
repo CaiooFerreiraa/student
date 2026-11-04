@@ -9,7 +9,7 @@ export const createQuizSchema = z.object({
   difficulty: z.enum(DifficultyLevel),
   mode: z.enum(QuizMode).default(QuizMode.STUDY),
   generationMode: z.enum(GenerationMode).default(GenerationMode.AI),
-  answerRevealMode: z.enum(AnswerRevealMode).default(AnswerRevealMode.AFTER_SUBMIT),
+  answerRevealMode: z.enum(AnswerRevealMode).default(AnswerRevealMode.AFTER_QUESTION),
   questionDistribution: z.object({
     multipleChoice: z.number().int().min(0).max(50),
     trueFalse: z.number().int().min(0).max(50),

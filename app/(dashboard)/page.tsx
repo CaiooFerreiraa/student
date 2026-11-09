@@ -1,44 +1,38 @@
 import { auth } from "@clerk/nextjs/server";
-import { asc, desc } from "drizzle-orm";
+import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, BarChart3, BookOpen, Bot, CalendarDays, Check, Clock3, FileText, Flame, Plus, Sparkles, Target, UploadCloud } from "lucide-react";
 import { getCurrentUser } from "@/lib/server/current-user";
 import { db } from "@/lib/server/db";
 import { materials as materialTable, quizAttempts, quizzes, quizReviewSchedules } from "@/lib/server/db/schema";
+import { getAttemptSummary, getStudyStreak } from "@/lib/server/quizzes/attempt-summary";
 
 export const dynamic = "force-dynamic";
-
-function studyStreak(dates: Date[]): number {
-  const days = new Set(dates.map((date) => date.toISOString().slice(0, 10)));
-  const cursor = new Date(); let streak = 0;
-  if (!days.has(cursor.toISOString().slice(0, 10))) cursor.setUTCDate(cursor.getUTCDate() - 1);
-  while (days.has(cursor.toISOString().slice(0, 10))) { streak++; cursor.setUTCDate(cursor.getUTCDate() - 1); }
-  return streak;
-}
 
 export default async function Home() {
   await auth.protect();
   const user = await getCurrentUser();
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const [attempts, recentQuizzes, materials, reviews, readyQuiz] = await Promise.all([
-    db.query.quizAttempts.findMany({ where: (table, { and, eq }) => and(eq(table.userId, user.id), eq(table.status, "SUBMITTED")), orderBy: [desc(quizAttempts.submittedAt)], with: { quiz: { with: { subject: true } } } }),
+  const [attempts, todaySummary, streak, recentQuizzes, materials, reviews, readyQuiz] = await Promise.all([
+    getAttemptSummary(user.id),
+    db.select({ count: sql<number>`count(*)::int`, questions: sql<number>`coalesce(sum(${quizAttempts.correctCount} + ${quizAttempts.incorrectCount}), 0)::int` }).from(quizAttempts).where(and(eq(quizAttempts.userId, user.id), eq(quizAttempts.status, "SUBMITTED"), gte(quizAttempts.submittedAt, today))).then(([row]) => row),
+    getStudyStreak(user.id),
     db.query.quizzes.findMany({ where: (table, { and, eq, isNull }) => and(eq(table.ownerId, user.id), isNull(table.deletedAt)), orderBy: [desc(quizzes.updatedAt)], limit: 4, with: { subject: true, quizVersion: true, quizAttempts: { where: (table, { eq }) => eq(table.status, "SUBMITTED"), orderBy: [desc(quizAttempts.submittedAt)], limit: 1 } } }),
     db.query.materials.findMany({ where: (table, { and, eq, isNull }) => and(eq(table.ownerId, user.id), isNull(table.deletedAt)), orderBy: [desc(materialTable.createdAt)], limit: 4, with: { fileAsset: true } }),
     db.query.quizReviewSchedules.findMany({ where: (table, { and, eq }) => and(eq(table.userId, user.id), eq(table.status, "ACTIVE")), orderBy: [asc(quizReviewSchedules.nextReviewAt)], limit: 3, with: { quiz: true } }),
     db.query.quizzes.findFirst({ where: (table, { and, eq, isNull }) => and(eq(table.ownerId, user.id), eq(table.status, "READY"), isNull(table.deletedAt)), orderBy: [desc(quizzes.updatedAt)] }),
   ]);
-  const completed = attempts.length;
-  const answered = attempts.reduce((sum, attempt) => sum + attempt.correctCount + attempt.incorrectCount + attempt.unansweredCount, 0);
-  const average = completed ? Math.round(attempts.reduce((sum, attempt) => sum + Number(attempt.percentage ?? 0), 0) / completed) : 0;
-  const studySeconds = attempts.reduce((sum, attempt) => sum + (attempt.durationSeconds ?? 0), 0);
-  const streak = studyStreak(attempts.flatMap((attempt) => attempt.submittedAt ? [attempt.submittedAt] : []));
-  const todayAttempts = attempts.filter((attempt) => attempt.submittedAt && attempt.submittedAt >= today);
-  const todayQuestions = todayAttempts.reduce((sum, attempt) => sum + attempt.correctCount + attempt.incorrectCount, 0);
+  const completed = attempts.completed;
+  const answered = attempts.answered;
+  const average = Math.round(attempts.average);
+  const studySeconds = attempts.seconds;
+  const todayAttempts = todaySummary?.count ?? 0;
+  const todayQuestions = todaySummary?.questions ?? 0;
 
   return <div className="space-y-5">
     <section className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(310px,.75fr)]"><div className="relative min-h-[285px] overflow-hidden rounded-[26px] bg-[#0b246d] p-7 text-white shadow-[0_24px_55px_-30px_#1231a5] sm:p-9"><div className="relative z-10 max-w-[600px]"><p className="mb-3 text-sm font-semibold text-cyan-200">Olá, {user.displayName.split(" ")[0]}!</p><h1 className="max-w-xl text-3xl font-extrabold leading-[1.12] tracking-[-.04em] sm:text-4xl">Sua próxima conquista começa em uma pergunta.</h1><p className="mt-4 max-w-lg text-sm leading-relaxed text-blue-100 sm:text-base">{readyQuiz ? `O quiz “${readyQuiz.title}” está pronto para continuar.` : "Envie um material e deixe a Lumina preparar sua primeira revisão."}</p><div className="mt-7 flex flex-wrap gap-3"><Link href={readyQuiz ? `/quizzes/session?id=${readyQuiz.id}` : "/materials"} className="primary-button bg-white text-blue-700 hover:bg-cyan-50">{readyQuiz ? "Continuar estudando" : "Enviar material"}<ArrowRight className="size-4" /></Link><Link href="/performance" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 text-sm font-bold text-white hover:bg-white/20"><BarChart3 className="size-4" /> Meu desempenho</Link></div></div><div className="absolute -bottom-11 -right-3 hidden h-[285px] w-[285px] sm:block lg:right-7"><Image src="/robozinho-student.png" alt="Mascote Lumina" fill priority className="object-contain drop-shadow-[0_25px_28px_rgba(0,0,45,.4)]" sizes="285px" /></div></div>
-      <article className="surface p-5 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="section-title">Metas de hoje</h2><Link href="/performance" className="text-xs font-bold text-blue-600">Ver desempenho</Link></div><div className="space-y-5"><Goal icon={<Check />} label="Responder 20 questões" value={`${Math.min(todayQuestions, 20)} / 20`} progress={Math.min(100, todayQuestions * 5)} /><Goal icon={<Clock3 />} label="Concluir uma sessão" value={`${todayAttempts.length} realizadas`} progress={todayAttempts.length ? 100 : 0} /><Goal icon={<Target />} label="Manter a sequência" value={`${streak} dias`} progress={Math.min(100, streak * 10)} /></div></article></section>
+      <article className="surface p-5 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="section-title">Metas de hoje</h2><Link href="/performance" className="text-xs font-bold text-blue-600">Ver desempenho</Link></div><div className="space-y-5"><Goal icon={<Check />} label="Responder 20 questões" value={`${Math.min(todayQuestions, 20)} / 20`} progress={Math.min(100, todayQuestions * 5)} /><Goal icon={<Clock3 />} label="Concluir uma sessão" value={`${todayAttempts} realizadas`} progress={todayAttempts ? 100 : 0} /><Goal icon={<Target />} label="Manter a sequência" value={`${streak} dias`} progress={Math.min(100, streak * 10)} /></div></article></section>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Stat icon={<BookOpen />} label="Questões respondidas" value={String(answered)} detail={`${completed} tentativas`} /><Stat icon={<Target />} label="Taxa de acertos" value={`${average}%`} detail="média real" /><Stat icon={<Flame />} label="Sequência atual" value={`${streak} dias`} detail="dias com estudo" /><Stat icon={<Clock3 />} label="Tempo de estudo" value={`${Math.floor(studySeconds / 3600)}h ${Math.floor(studySeconds % 3600 / 60)}m`} detail="tempo em quizzes" /></section>
     <section className="grid gap-5 xl:grid-cols-[1fr_1fr_1fr]"><article className="surface p-5"><div className="mb-4 flex items-center justify-between"><h2 className="section-title">Próximas revisões</h2><CalendarDays className="size-4 text-blue-600" /></div>{reviews.length ? <div className="space-y-2">{reviews.map((review) => <Link key={review.id} href={`/quizzes/session?id=${review.quizId}`} className="flex items-center gap-3 rounded-xl border border-slate-100 p-3 hover:border-blue-200"><span className="grid size-10 place-items-center rounded-lg bg-blue-50 text-xs font-bold text-blue-700">{review.nextReviewAt.getDate()}</span><span className="min-w-0"><strong className="block truncate text-xs text-navy">{review.quiz.title}</strong><small className="text-[10px] text-slate-500">{review.nextReviewAt.toLocaleDateString("pt-BR")}</small></span></Link>)}</div> : <Empty text="Conclua um quiz para agendar revisões." />}</article>
       <article className="surface p-5"><h2 className="section-title mb-4">Ações rápidas</h2><div className="grid grid-cols-2 gap-3"><Quick href="/quizzes/create" icon={<Plus />} title="Criar quiz" /><Quick href="/materials" icon={<UploadCloud />} title="Enviar material" /><Quick href="/chat" icon={<Bot />} title="Perguntar à IA" /><Quick href="/performance" icon={<BarChart3 />} title="Ver evolução" /></div></article>

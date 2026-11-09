@@ -1,25 +1,20 @@
 import { auth } from "@clerk/nextjs/server";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { Suspense } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppTopbar } from "@/components/app-topbar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { getCurrentUser } from "@/lib/server/current-user";
-import { db } from "@/lib/server/db";
-import { quizAttempts } from "@/lib/server/db/schema";
+import { getStudyStreak } from "@/lib/server/quizzes/attempt-summary";
+import DashboardLoading from "./loading";
 
-export default async function DashboardLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function DashboardLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return <Suspense fallback={<div className="flex min-h-screen w-full"><div className="hidden w-68 shrink-0 bg-slate-100 md:block" /><div className="min-w-0 flex-1 p-6"><DashboardLoading /></div></div>}><DashboardContent>{children}</DashboardContent></Suspense>;
+}
+
+async function DashboardContent({ children }: Readonly<{ children: React.ReactNode }>) {
   await auth.protect();
   const user = await getCurrentUser();
-  const activity = await db.select({ submittedAt: quizAttempts.submittedAt }).from(quizAttempts)
-    .where(and(eq(quizAttempts.userId, user.id), eq(quizAttempts.status, "SUBMITTED"), isNotNull(quizAttempts.submittedAt)));
-  const days = new Set(activity.flatMap((item) => item.submittedAt ? [item.submittedAt.toISOString().slice(0, 10)] : []));
-  const cursor = new Date();
-  let streak = 0;
-  if (!days.has(cursor.toISOString().slice(0, 10))) cursor.setUTCDate(cursor.getUTCDate() - 1);
-  while (days.has(cursor.toISOString().slice(0, 10))) {
-    streak++;
-    cursor.setUTCDate(cursor.getUTCDate() - 1);
-  }
+  const streak = await getStudyStreak(user.id);
 
   return (
     <SidebarProvider>

@@ -24,9 +24,25 @@ export function QuizCardActions({
 
   useEffect(() => {
     if (!isGenerating) return;
-    const interval = setInterval(() => router.refresh(), 2_000);
-    return () => clearInterval(interval);
-  }, [isGenerating, router]);
+    let stopped = false;
+    let timeout: ReturnType<typeof setTimeout>;
+    const check = async () => {
+      if (document.hidden) { timeout = setTimeout(check, 5_000); return; }
+      try {
+        const response = await fetch(`/api/quizzes/${quizId}/status`, { cache: "no-store" });
+        if (response.ok) {
+          const status = await response.json() as { generating: boolean };
+          if (!stopped && !status.generating) { router.refresh(); return; }
+        }
+      } catch {
+        // A próxima tentativa consulta o estado novamente.
+      } finally {
+        if (!stopped) timeout = setTimeout(check, 5_000);
+      }
+    };
+    timeout = setTimeout(check, 5_000);
+    return () => { stopped = true; clearTimeout(timeout); };
+  }, [isGenerating, quizId, router]);
 
   async function retryGeneration(): Promise<void> {
     setStarting(true);

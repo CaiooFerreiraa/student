@@ -9,7 +9,7 @@ import "./globals.css";
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 
 export const metadata: Metadata = {
-  title: "Lumina — Estude com clareza",
+  title: "Lumina | Estude com clareza",
   description: "Transforme seus materiais em quizzes e aprenda com uma tutora de IA.",
 };
 

@@ -22,7 +22,7 @@ export default async function PerformancePage() {
       .where(and(eq(quizAttempts.userId, user.id), eq(quizAttempts.status, "SUBMITTED"))).groupBy(subjectTable.name),
     db.select({ day: sql<string>`(${quizAttempts.submittedAt} AT TIME ZONE ${timeZone})::date::text`, questions: sql<number>`coalesce(sum(${quizAttempts.correctCount} + ${quizAttempts.incorrectCount}), 0)::int` })
       .from(quizAttempts).where(and(eq(quizAttempts.userId, user.id), eq(quizAttempts.status, "SUBMITTED"), gte(quizAttempts.submittedAt, sevenDaysAgo)))
-      .groupBy(sql`(${quizAttempts.submittedAt} AT TIME ZONE ${timeZone})::date`),
+      .groupBy(sql`1`),
   ]);
   const questions = summary.answered;
   const average = Math.round(summary.average);

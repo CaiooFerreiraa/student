@@ -22,7 +22,7 @@ export default async function QuizzesPage() {
   await auth.protect();
   const user = await getCurrentUser();
   const [quizzes, [attemptSummary], nextReview] = await Promise.all([
-    db.query.quizzes.findMany({ where: (table, { and, eq, isNull }) => and(eq(table.ownerId, user.id), isNull(table.deletedAt)), orderBy: [desc(quizTable.updatedAt)], with: { subject: true, quizVersion: { with: { questions: true } }, quizVersions: { orderBy: [desc(quizVersions.versionNumber)], limit: 1, with: { questions: true } }, quizAttempts: { where: (table, { eq }) => eq(table.status, "SUBMITTED"), orderBy: [desc(quizAttempts.submittedAt)], limit: 1 } } }),
+    db.query.quizzes.findMany({ where: (table, { and, eq, isNull }) => and(eq(table.ownerId, user.id), isNull(table.deletedAt)), orderBy: [desc(quizTable.updatedAt)], with: { subject: true, quizVersion: { with: { questions: { columns: { type: true } } } }, quizVersions: { orderBy: [desc(quizVersions.versionNumber)], limit: 1, with: { questions: { columns: { type: true } } } }, quizAttempts: { where: (table, { eq }) => eq(table.status, "SUBMITTED"), orderBy: [desc(quizAttempts.submittedAt)], limit: 1 } } }),
     db.select({ completed: sql<number>`count(*)::int`, average: sql<number>`coalesce(avg(${quizAttempts.percentage}), 0)::float8` }).from(quizAttempts).where(and(eq(quizAttempts.userId, user.id), eq(quizAttempts.status, "SUBMITTED"))),
     db.query.quizReviewSchedules.findFirst({ where: (table, { and, eq }) => and(eq(table.userId, user.id), eq(table.status, "ACTIVE")), orderBy: [asc(quizReviewSchedules.nextReviewAt)], with: { quiz: true } }),
   ]);

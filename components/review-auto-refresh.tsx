@@ -8,7 +8,7 @@ export function ReviewAutoRefresh({ active }: { active: boolean }) {
 
   useEffect(() => {
     if (!active) return;
-    const interval = setInterval(() => router.refresh(), 3_000);
+    const interval = setInterval(() => { if (!document.hidden) router.refresh(); }, 10_000);
     return () => clearInterval(interval);
   }, [active, router]);
 

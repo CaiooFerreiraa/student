@@ -82,6 +82,10 @@ export function MaterialsLibrary({
     let timeout: ReturnType<typeof setTimeout> | null = null;
 
     const refresh = async (): Promise<void> => {
+      if (document.hidden) {
+        timeout = setTimeout(() => void refresh(), 5_000);
+        return;
+      }
       try {
         const response = await fetch("/api/materials", { cache: "no-store" });
         const result = await readApiResponse<MaterialListItem[]>(response);

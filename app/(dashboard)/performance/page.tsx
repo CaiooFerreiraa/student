@@ -1,28 +1,40 @@
 import { auth } from "@clerk/nextjs/server";
-import { asc } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { Award, BarChart3, BookOpen, Brain, Clock3, Flame, Target, TrendingUp } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { getCurrentUser } from "@/lib/server/current-user";
 import { db } from "@/lib/server/db";
-import { quizAttempts } from "@/lib/server/db/schema";
+import { quizAttempts, quizzes, subjects as subjectTable } from "@/lib/server/db/schema";
+import { getAttemptSummary } from "@/lib/server/quizzes/attempt-summary";
 
 export const dynamic = "force-dynamic";
 
 export default async function PerformancePage() {
   await auth.protect();
   const user = await getCurrentUser();
-  const attempts = await db.query.quizAttempts.findMany({ where: (table, { and, eq }) => and(eq(table.userId, user.id), eq(table.status, "SUBMITTED")), orderBy: [asc(quizAttempts.submittedAt)], with: { quiz: { with: { subject: true } } } });
-  const questions = attempts.reduce((sum, attempt) => sum + attempt.correctCount + attempt.incorrectCount + attempt.unansweredCount, 0);
-  const average = attempts.length ? Math.round(attempts.reduce((sum, attempt) => sum + Number(attempt.percentage ?? 0), 0) / attempts.length) : 0;
-  const seconds = attempts.reduce((sum, attempt) => sum + (attempt.durationSeconds ?? 0), 0);
-  const subjectMap = new Map<string, { total: number; count: number; questions: number }>();
-  for (const attempt of attempts) { const name = attempt.quiz.subject?.name ?? "Sem disciplina"; const current = subjectMap.get(name) ?? { total: 0, count: 0, questions: 0 }; current.total += Number(attempt.percentage ?? 0); current.count++; current.questions += attempt.correctCount + attempt.incorrectCount; subjectMap.set(name, current); }
-  const subjects = [...subjectMap.entries()].map(([name, value]) => ({ name, score: Math.round(value.total / value.count), questions: value.questions })).sort((a, b) => b.score - a.score);
-  const lastSeven = Array.from({ length: 7 }, (_, offset) => { const day = new Date(); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() - (6 - offset)); const next = new Date(day); next.setDate(next.getDate() + 1); const value = attempts.filter((attempt) => attempt.submittedAt && attempt.submittedAt >= day && attempt.submittedAt < next).reduce((sum, attempt) => sum + attempt.correctCount + attempt.incorrectCount, 0); return { label: day.toLocaleDateString("pt-BR", { weekday: "short" }).slice(0, 3), value }; });
+  const sevenDaysAgo = new Date(); sevenDaysAgo.setHours(0, 0, 0, 0); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const localDay = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const [summary, subjectRows, dailyRows] = await Promise.all([
+    getAttemptSummary(user.id),
+    db.select({ name: subjectTable.name, total: sql<number>`coalesce(sum(coalesce(${quizAttempts.percentage}, 0)), 0)::float8`, count: sql<number>`count(*)::int`, questions: sql<number>`coalesce(sum(${quizAttempts.correctCount} + ${quizAttempts.incorrectCount}), 0)::int` })
+      .from(quizAttempts).innerJoin(quizzes, eq(quizAttempts.quizId, quizzes.id)).leftJoin(subjectTable, eq(quizzes.subjectId, subjectTable.id))
+      .where(and(eq(quizAttempts.userId, user.id), eq(quizAttempts.status, "SUBMITTED"))).groupBy(subjectTable.name),
+    db.select({ day: sql<string>`(${quizAttempts.submittedAt} AT TIME ZONE ${timeZone})::date::text`, questions: sql<number>`coalesce(sum(${quizAttempts.correctCount} + ${quizAttempts.incorrectCount}), 0)::int` })
+      .from(quizAttempts).where(and(eq(quizAttempts.userId, user.id), eq(quizAttempts.status, "SUBMITTED"), gte(quizAttempts.submittedAt, sevenDaysAgo)))
+      .groupBy(sql`(${quizAttempts.submittedAt} AT TIME ZONE ${timeZone})::date`),
+  ]);
+  const questions = summary.answered;
+  const average = Math.round(summary.average);
+  const seconds = summary.seconds;
+  const attempts = summary.completed;
+  const subjects = subjectRows.map((row) => ({ name: row.name ?? "Sem disciplina", score: Math.round(row.total / row.count), questions: row.questions })).sort((a, b) => b.score - a.score);
+  const dailyQuestions = new Map(dailyRows.map((row) => [row.day, row.questions]));
+  const lastSeven = Array.from({ length: 7 }, (_, offset) => { const day = new Date(sevenDaysAgo); day.setDate(day.getDate() + offset); return { label: day.toLocaleDateString("pt-BR", { weekday: "short" }).slice(0, 3), value: dailyQuestions.get(localDay(day)) ?? 0 }; });
   const maxDay = Math.max(1, ...lastSeven.map((day) => day.value));
   return <div><PageHeader eyebrow="Evolução" title="Seu desempenho" description="Métricas calculadas a partir das tentativas persistidas no Neon." icon={BarChart3} />
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={<Target />} label="Aproveitamento" value={`${average}%`} detail="média geral" /><Metric icon={<BookOpen />} label="Questões" value={String(questions)} detail={`${attempts.length} tentativas`} /><Metric icon={<Clock3 />} label="Tempo de estudo" value={`${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`} detail="tempo registrado" /><Metric icon={<Flame />} label="Sessões" value={String(attempts.length)} detail="concluídas" /></section>
-    <section className="mt-5 grid gap-5 xl:grid-cols-[1.5fr_.8fr]"><article className="surface p-5 sm:p-6"><div className="flex items-center justify-between"><div><h2 className="section-title">Últimos sete dias</h2><p className="mt-1 text-xs text-slate-500">Questões respondidas por dia</p></div><TrendingUp className="size-5 text-emerald-500" /></div><div className="mt-7 flex h-56 items-end gap-4">{lastSeven.map((day) => <div key={day.label} className="flex flex-1 flex-col items-center gap-2"><div className="flex h-44 w-full items-end rounded-t-xl bg-slate-50"><div className="w-full rounded-t-xl bg-blue-500" style={{ height: `${day.value ? Math.max(8, day.value / maxDay * 100) : 0}%` }} /></div><span className="text-[10px] font-semibold text-slate-500">{day.label}</span></div>)}</div></article><article className="surface grid place-items-center p-6 text-center"><div><div className="mx-auto grid size-36 place-items-center rounded-full bg-[conic-gradient(#2458ff_0_var(--score),var(--muted)_var(--score))]" style={{ "--score": `${average}%` } as React.CSSProperties}><div className="grid size-27 place-items-center rounded-full bg-card"><strong className="text-3xl text-navy">{average}%</strong></div></div><div className="mt-5 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700"><Award className="size-4" />{attempts.length ? "Continue evoluindo" : "Faça seu primeiro quiz"}</div></div></article></section>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={<Target />} label="Aproveitamento" value={`${average}%`} detail="média geral" /><Metric icon={<BookOpen />} label="Questões" value={String(questions)} detail={`${attempts} tentativas`} /><Metric icon={<Clock3 />} label="Tempo de estudo" value={`${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`} detail="tempo registrado" /><Metric icon={<Flame />} label="Sessões" value={String(attempts)} detail="concluídas" /></section>
+    <section className="mt-5 grid gap-5 xl:grid-cols-[1.5fr_.8fr]"><article className="surface p-5 sm:p-6"><div className="flex items-center justify-between"><div><h2 className="section-title">Últimos sete dias</h2><p className="mt-1 text-xs text-slate-500">Questões respondidas por dia</p></div><TrendingUp className="size-5 text-emerald-500" /></div><div className="mt-7 flex h-56 items-end gap-4">{lastSeven.map((day) => <div key={day.label} className="flex flex-1 flex-col items-center gap-2"><div className="flex h-44 w-full items-end rounded-t-xl bg-slate-50"><div className="w-full rounded-t-xl bg-blue-500" style={{ height: `${day.value ? Math.max(8, day.value / maxDay * 100) : 0}%` }} /></div><span className="text-[10px] font-semibold text-slate-500">{day.label}</span></div>)}</div></article><article className="surface grid place-items-center p-6 text-center"><div><div className="mx-auto grid size-36 place-items-center rounded-full bg-[conic-gradient(#2458ff_0_var(--score),var(--muted)_var(--score))]" style={{ "--score": `${average}%` } as React.CSSProperties}><div className="grid size-27 place-items-center rounded-full bg-card"><strong className="text-3xl text-navy">{average}%</strong></div></div><div className="mt-5 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700"><Award className="size-4" />{attempts ? "Continue evoluindo" : "Faça seu primeiro quiz"}</div></div></article></section>
     <section className="mt-5 grid gap-5 xl:grid-cols-[1.2fr_.8fr]"><article className="surface p-5 sm:p-6"><h2 className="section-title mb-6">Desempenho por disciplina</h2>{subjects.length ? <div className="space-y-5">{subjects.map((subject) => <div key={subject.name} className="grid grid-cols-[minmax(130px,1fr)_1.3fr_48px] items-center gap-4"><div><strong className="block truncate text-xs text-navy">{subject.name}</strong><small className="text-[10px] text-slate-400">{subject.questions} questões</small></div><div className="h-2.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${subject.score}%` }} /></div><strong className="text-right text-sm text-navy">{subject.score}%</strong></div>)}</div> : <p className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">As disciplinas aparecerão após suas primeiras tentativas.</p>}</article><article className="surface p-5"><span className="grid size-11 place-items-center rounded-xl bg-violet-50 text-violet-600"><Brain className="size-5" /></span><h2 className="section-title mt-4">Insight atual</h2><p className="mt-3 text-sm leading-relaxed text-slate-600">{subjects.length ? `Seu melhor desempenho está em ${subjects[0]!.name}, com ${subjects[0]!.score}% de aproveitamento.` : "Ainda não existem dados suficientes para gerar um insight de desempenho."}</p></article></section>
   </div>;
 }
